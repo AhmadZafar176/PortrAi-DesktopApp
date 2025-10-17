@@ -1,0 +1,18 @@
+[
+  {
+    "family": "MaterialIcons",
+    "fonts": [
+      {
+        "asset": "packages/flutter/fonts/MaterialIcons-Regular.otf"
+      }
+    ]
+  },
+  {
+    "family": "CupertinoIcons", 
+    "fonts": [
+      {
+        "asset": "packages/cupertino_icons/assets/CupertinoIcons.ttf"
+      }
+    ]
+  }
+]
