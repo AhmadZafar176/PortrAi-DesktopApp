@@ -185,40 +185,6 @@ class AuthService {
     }
   }
 
-  // Save preset to Firestore
-  Future<void> savePreset(Preset preset) async {
-    try {
-      final user = _auth.currentUser;
-      if (user == null) throw Exception('User not authenticated');
-
-      await _firestore
-          .collection('users')
-          .doc(user.uid)
-          .collection('presets')
-          .doc(preset.presetId.isEmpty ? DateTime.now().millisecondsSinceEpoch.toString() : preset.presetId)
-          .set(preset.toMap());
-    } catch (e) {
-      throw Exception('Failed to save preset: $e');
-    }
-  }
-
-  // Delete preset from Firestore
-  Future<void> deletePreset(String presetId) async {
-    try {
-      final user = _auth.currentUser;
-      if (user == null) throw Exception('User not authenticated');
-
-      await _firestore
-          .collection('users')
-          .doc(user.uid)
-          .collection('presets')
-          .doc(presetId)
-          .delete();
-    } catch (e) {
-      throw Exception('Failed to delete preset: $e');
-    }
-  }
-
   // Fetch user collections from Firestore
   Future<List<Collection>> fetchUserCollections() async {
     try {

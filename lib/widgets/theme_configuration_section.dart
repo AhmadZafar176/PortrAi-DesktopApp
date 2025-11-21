@@ -128,7 +128,6 @@ class ThemeConfigurationSection extends StatelessWidget {
                     return PresetCard(
                       preset: preset,
                       onEdit: () => _editPreset(context, preset),
-                      onDelete: () => _deletePreset(context, preset),
                     );
                   },
                 );
@@ -136,31 +135,7 @@ class ThemeConfigurationSection extends StatelessWidget {
             ),
           ),
           
-          // Add theme button
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: SizedBox(
-              width: double.infinity,
-              height: 40,
-              child: ElevatedButton(
-                onPressed: () => _addTheme(context),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.transparent,
-                  foregroundColor: Colors.white,
-                  side: const BorderSide(color: Color(0xFF080C1B), width: 2),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-                child: const Text(
-                  '＋  Add a new theme',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ),
-          ),
+          // Add theme button removed per requirement
         ],
       ),
     );
@@ -187,20 +162,14 @@ class ThemeConfigurationSection extends StatelessWidget {
     );
   }
 
-  void _addTheme(BuildContext context) {
-    // TODO: Show add theme dialog
-    debugPrint('Add theme');
-  }
+  // _addTheme removed per requirement
 
   void _editPreset(BuildContext context, preset) {
     // TODO: Show edit preset dialog
     debugPrint('Edit preset: ${preset.title}');
   }
 
-  void _deletePreset(BuildContext context, preset) {
-    // TODO: Show delete confirmation dialog
-    debugPrint('Delete preset: ${preset.title}');
-  }
+  // _deletePreset removed per requirement
 }
 
 

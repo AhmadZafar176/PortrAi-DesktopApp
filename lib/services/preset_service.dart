@@ -65,6 +65,8 @@ class PresetService {
 
   // Initialize service
   Future<void> initialize() async {
+    // ignore: avoid_print
+    print('PresetService:initialize');
     await _loadFromLocalCache();
     await _loadUserDataFromFirebase();
     await _startRealtimeListeners();
@@ -93,6 +95,7 @@ class PresetService {
       await _performFirebaseSync();
       _initialSyncCompleted = true;
       _lastFirebaseSync = currentTime;
+      await LogService.log('PresetService: Firebase sync complete');
     } else {
       print("🚀 Using cached data, Firebase sync not needed");
     }
@@ -157,16 +160,11 @@ class PresetService {
         
         for (final presetDoc in presetsSnapshot.docs) {
           final presetData = presetDoc.data();
-          
-          if (presetData['presetId'] == null) {
-            print("⚠️ Skipping preset without presetId in collection: $collectionName");
-            continue;
-          }
 
-          // Create Preset object with Firebase structure using fromMap for proper type conversion
+          // Create Preset object; always use document path ID as presetId
           final preset = Preset.fromMap({
             'collectionId': presetData['collectionId'] ?? collectionId,
-            'presetId': presetData['presetId'] ?? '',
+            'presetId': presetDoc.id,
             'title': presetData['title'] ?? '',
             'generatedImageUrls': presetData['generatedImageUrls'],
             'postProcessingUrl': presetData['postProcessingUrl'] ?? '',
@@ -175,6 +173,7 @@ class PresetService {
             'url': presetData['postProcessingUrl'] ?? '',
             'thumbnailPath': presetData['generatedImageUrls'],
             'collection': collectionName,
+            'prompt': presetData['prompt'] ?? '',
           });
 
           // Categorize by presetType field
@@ -323,50 +322,7 @@ class PresetService {
     }
   }
 
-  // Add a new preset
-  Future<Preset> addPreset(Preset preset) async {
-    // Generate IDs if not present
-    String presetId = preset.presetId;
-    String collectionId = preset.collectionId;
-    String createdAt = preset.createdAt;
-    
-    if (presetId.isEmpty) {
-      presetId = _generatePresetId();
-    }
-    if (collectionId.isEmpty) {
-      collectionId = _generateCollectionId();
-    }
-    if (createdAt.isEmpty) {
-      createdAt = DateTime.now().millisecondsSinceEpoch.toString();
-    }
-    
-    // Create updated preset with generated IDs and sync metadata
-    final updatedPreset = preset.copyWith(
-      presetId: presetId,
-      collectionId: collectionId,
-      createdAt: createdAt,
-      lastModified: DateTime.now().millisecondsSinceEpoch,
-      isLocalChange: true,
-    );
-
-    // Add to local cache - categorize by current data source selection
-    if (_dataSource == 'post') {
-      _localPostDeliveryPresets.add(updatedPreset);
-    } else {
-      _localPresets.add(updatedPreset);
-    }
-    await _saveLocalCache();
-
-    // Try to sync to Firebase
-    try {
-      await _addPresetToFirebase(updatedPreset);
-      print("✅ Preset '${updatedPreset.title}' added and synced to Firebase");
-    } catch (e) {
-      print("⚠️ Preset '${updatedPreset.title}' added locally, Firebase sync failed: $e");
-    }
-
-    return updatedPreset;
-  }
+  // addPreset removed (creation not used)
 
   // Helper method to find preset index in either list
   int _findPresetIndex(String presetId) {
@@ -429,10 +385,22 @@ class PresetService {
       }
     }
 
-    // Try to sync to Firebase
+    // Try to sync to Firebase (handle collection move atomically)
     try {
-      await _updatePresetInFirebase(updatedPreset);
-      print("✅ Preset '${updatedPreset.title}' updated and synced to Firebase");
+      final collectionChanged =
+          (currentPreset.collectionId != updatedPreset.collectionId) ||
+          (currentPreset.collection != updatedPreset.collection);
+
+      if (collectionChanged) {
+        await movePresetBetweenCollections(
+          originalPreset: currentPreset,
+          updatedPreset: updatedPreset,
+        );
+        print("✅ Preset '${updatedPreset.title}' moved from '${currentPreset.collection}' to '${updatedPreset.collection}'");
+      } else {
+        await _updatePresetInFirebase(updatedPreset);
+        print("✅ Preset '${updatedPreset.title}' updated and synced to Firebase");
+      }
     } catch (e) {
       print("⚠️ Preset '${updatedPreset.title}' updated locally, Firebase sync failed: $e");
     }
@@ -456,12 +424,7 @@ class PresetService {
     await _saveLocalCache();
 
     // Try to sync to Firebase
-    try {
-      await _deletePresetFromFirebase(presetToDelete);
-      print("✅ Preset '${presetToDelete.title}' deleted and synced to Firebase");
-    } catch (e) {
-      print("⚠️ Preset '${presetToDelete.title}' deleted locally, Firebase sync failed: $e");
-    }
+    // Firebase deletion removed (editing/deletion disabled)
   }
 
   // Add preset to Firebase - exactly like legacy app
@@ -561,27 +524,67 @@ class PresetService {
         .update(presetData);
   }
 
-  // Delete preset from Firebase - exactly like legacy app
-  Future<void> _deletePresetFromFirebase(Preset preset) async {
+  /// Atomically move a preset from its old collection to a new collection in Firebase
+  Future<void> movePresetBetweenCollections({
+    required Preset originalPreset,
+    required Preset updatedPreset,
+  }) async {
     final user = _authService.currentUser;
     if (user == null) throw Exception("User not authenticated");
 
-    // Use the collectionId from preset (should be random 8-character string) - exactly like legacy
-    String collectionId = preset.collectionId;
-    if (collectionId.isEmpty) {
-      // Fallback: generate random collectionId if not present - exactly like legacy
-      collectionId = _generateCollectionId();
+    // Resolve IDs
+    String oldCollectionId = originalPreset.collectionId;
+    if (oldCollectionId.isEmpty) {
+      // Try resolve from name map if available
+      final oldName = originalPreset.collection.isNotEmpty ? originalPreset.collection : 'Default';
+      if (_collectionNameToId.containsKey(oldName)) {
+        oldCollectionId = _collectionNameToId[oldName]!;
+      }
     }
 
-    // Delete from Firebase using Firestore SDK - exact path from legacy app
-    await _firestore
-        .collection('users')
-        .doc(user.uid)
-        .collection('collections')
-        .doc(collectionId)
-        .collection('presets')
-        .doc(preset.presetId)
-        .delete();
+    String newCollectionId = updatedPreset.collectionId;
+    final newName = updatedPreset.collection.isNotEmpty ? updatedPreset.collection : 'Default';
+    if (_collectionNameToId.containsKey(newName)) {
+      newCollectionId = _collectionNameToId[newName]!;
+    }
+
+    // Create/overwrite the preset document in the new collection first
+    await _addPresetToFirebase(updatedPreset);
+
+    // Delete the old document if the collection actually changed and we know the old ID
+    if (oldCollectionId.isNotEmpty && oldCollectionId != newCollectionId) {
+      await deletePresetByIdFromCollection(updatedPreset.presetId, oldCollectionId);
+    }
+
+    // Update local cache saved already by callers; notify listeners if needed
+    await _saveLocalCache();
+    _notifyDataChanged();
+  }
+
+  // _deletePresetFromFirebase removed (deletion not used)
+
+  /// Delete a preset document from a specific collection by IDs (used when moving between collections)
+  Future<void> deletePresetByIdFromCollection(String presetId, String oldCollectionId) async {
+    final user = _authService.currentUser;
+    if (user == null) throw Exception("User not authenticated");
+
+    if (presetId.isEmpty || oldCollectionId.isEmpty) {
+      return; // nothing to delete
+    }
+
+    try {
+      await _firestore
+          .collection('users')
+          .doc(user.uid)
+          .collection('collections')
+          .doc(oldCollectionId)
+          .collection('presets')
+          .doc(presetId)
+          .delete();
+      print("🧹 Deleted old preset doc $presetId from collection $oldCollectionId after move");
+    } catch (e) {
+      print("❌ Failed to delete old preset $presetId from $oldCollectionId: $e");
+    }
   }
 
   // Upload image to Firebase Storage
@@ -605,7 +608,11 @@ class PresetService {
     }
   }
 
-  /// Append a generated image URL to a preset in Firebase and set it as latest thumbnail
+  /// Replace the generated image URL for a preset in Firebase and set it as latest thumbnail
+  ///
+  /// Previous behavior appended to an array and could lead to unintended document creation
+  /// in some environments. We now perform a field-level update to replace the existing
+  /// thumbnail URL without creating a new preset document.
   Future<void> appendGeneratedImageUrlToPreset(Preset preset, String imageUrl) async {
     final user = _authService.currentUser;
     if (user == null) throw Exception("User not authenticated");
@@ -631,15 +638,30 @@ class PresetService {
         .doc(preset.presetId);
 
     try {
-      await LogService.log('ThumbAppend:start presetId=${preset.presetId} collectionId=$collectionId url=$imageUrl');
-      await docRef.set({
-        'generatedImageUrls': FieldValue.arrayUnion([imageUrl]),
+      await LogService.log('ThumbReplace:start presetId=${preset.presetId} collectionId=$collectionId url=$imageUrl');
+      // Replace entire array with a single latest URL to maintain array type
+      await docRef.update({
+        'generatedImageUrls': [imageUrl],
         'thumbnailPath': imageUrl,
         'updatedAt': DateTime.now().millisecondsSinceEpoch,
-      }, SetOptions(merge: true));
-      await LogService.log('ThumbAppend:success presetId=${preset.presetId}');
+      });
+      await LogService.log('ThumbReplace:success presetId=${preset.presetId}');
+      // Local immediate update to refresh UI
+      for (int i = 0; i < _localPresets.length; i++) {
+        if (_localPresets[i].presetId == preset.presetId) {
+          _localPresets[i] = _localPresets[i].copyWith(generatedImageUrls: imageUrl);
+          break;
+        }
+      }
+      for (int i = 0; i < _localPostDeliveryPresets.length; i++) {
+        if (_localPostDeliveryPresets[i].presetId == preset.presetId) {
+          _localPostDeliveryPresets[i] = _localPostDeliveryPresets[i].copyWith(generatedImageUrls: imageUrl);
+          break;
+        }
+      }
+      _notifyDataChanged();
     } catch (e) {
-      await LogService.log('ThumbAppend:error presetId=${preset.presetId} -> $e');
+      await LogService.log('ThumbReplace:error presetId=${preset.presetId} -> $e');
       rethrow;
     }
   }
@@ -726,7 +748,7 @@ class PresetService {
     print("🔍 getPresetsForDataSource('$dataSource'): returning ${presets.length} presets");
     print("   Live presets: ${_localPresets.length}, Post-delivery presets: ${_localPostDeliveryPresets.length}");
     for (final preset in presets) {
-      print("  - ${preset.title} (ID: ${preset.presetId})");
+      print("  - ${preset.title} (ID: ${preset.presetId}, collection: '${preset.collection}')");
     }
     return presets;
   }
@@ -757,7 +779,12 @@ class PresetService {
         nameToCollection.putIfAbsent(c.name, () => c);
       }
     }
-    return nameToCollection.values.toList();
+    final result = nameToCollection.values.toList();
+    print("🔍 getCollectionsForDataSource('$dataSource'): returning ${result.length} collections");
+    for (final collection in result) {
+      print("   - '${collection.name}' (ID: ${collection.id})");
+    }
+    return result;
   }
 
   // Debounced save preset field to Firebase with conflict resolution
@@ -992,11 +1019,11 @@ class PresetService {
         for (final presetDoc in presetsSnapshot.docs) {
           final data = presetDoc.data();
           final preset = Preset.fromMap({
-            'id': presetDoc.id,
             ...data,
-            // Ensure collection metadata is present even if the preset document lacks it
+            'presetId': presetDoc.id,
             'collectionId': collectionId,
             'collection': collectionName,
+            'prompt': (data['prompt'] ?? ''),
           });
           allPresets.add(preset);
         }

@@ -5,6 +5,7 @@ import 'package:window_manager/window_manager.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:dropdown_button2/dropdown_button2.dart';
 import '../services/log_service.dart';
+import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 import '../providers/app_state.dart';
@@ -12,6 +13,7 @@ import '../widgets/user_profile_widget.dart';
 import '../widgets/chevron_widget.dart';
 import '../services/preset_service.dart';
 import '../models/preset.dart';
+import '../services/thumbnail_cache_service.dart';
 import '../models/collection.dart';
 import 'booth_selection_screen.dart';
 
@@ -32,12 +34,26 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
   String _lastDataSource = 'live'; // Track last data source to detect changes
   // Stable controllers for title fields per presetId
   final Map<String, TextEditingController> _titleControllers = {};
+  String _lastPreloadKey = '';
+  Timer? _preloadTimer;
+  bool _isNavigating = false; // Prevent multiple simultaneous navigations
 
   TextEditingController _titleControllerFor(Preset preset) {
     return _titleControllers.putIfAbsent(
       preset.presetId,
       () => TextEditingController(text: preset.title),
     );
+  }
+
+  void _debouncedPreloadThumbnails(BuildContext context, List<Preset> presets) {
+    final urls = presets.map((p) => p.generatedImageUrls).where((u) => u.isNotEmpty).toList();
+    final key = urls.join('|');
+    if (key == _lastPreloadKey) return;
+    _lastPreloadKey = key;
+    _preloadTimer?.cancel();
+    _preloadTimer = Timer(const Duration(milliseconds: 150), () {
+      ThumbnailCacheService.instance.preloadUrls(urls, context: context);
+    });
   }
 
   @override
@@ -95,8 +111,228 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
             final padding = MediaQuery.of(context).padding;
             final safeVerticalPadding = padding.top + padding.bottom;
             final effectiveBaseHeight = _baseHeight - safeVerticalPadding;
-            final canRenderOneToOne = viewport.maxWidth >= _baseWidth && viewport.maxHeight >= effectiveBaseHeight;
+            final isPortrait = MediaQuery.of(context).orientation == Orientation.portrait;
+            final canRenderOneToOne = !isPortrait && viewport.maxWidth >= _baseWidth && viewport.maxHeight >= effectiveBaseHeight;
 
+            // Portrait: render directly without fixed canvas
+            if (isPortrait) {
+              return SizedBox(
+                width: viewport.maxWidth,
+                height: viewport.maxHeight - safeVerticalPadding,
+                child: Consumer<AppState>(
+        builder: (context, appState, child) {
+          // build
+          if (_lastDataSource != appState.dataSource) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              setState(() {
+                _lastDataSource = appState.dataSource;
+                _selectedCollectionFilter = null;
+              });
+            });
+          }
+          return Stack(
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 0),
+                child: Center(
+                  child: Container(
+                    width: double.infinity,
+                    constraints: const BoxConstraints(maxWidth: 1600),
+                        child: Padding(
+                                            padding: const EdgeInsets.fromLTRB(24.0, 12.0, 24.0, 24.0),
+                      child: Column(
+                        children: [
+                          Column(
+                            children: [
+                              const Text(
+                                'Photobooth Setup',
+                                style: TextStyle(
+                                  fontSize: 28,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              const Text(
+                                'Easily configure and manage your photobooth themes.',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Color(0xFFCCCCCC),
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 8),
+                              _buildRealtimeIndicator(appState),
+                            ],
+                          ),
+                                                const SizedBox(height: 24),
+                          Expanded(
+                            child: Container(
+                              decoration: BoxDecoration(
+                                                      color: const Color(0xFF0E1225),
+                                border: Border.all(color: const Color(0xFF1F2937)),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.all(20.0),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Theme Configuration',
+                                          style: TextStyle(
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.w700,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                        SizedBox(height: 6),
+                                        Text(
+                                          'Upload your theme thumbnails.',
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            color: Color(0xFFCCCCCC),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 16),
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Checkbox(
+                                              value: _noEffectsEnabled,
+                                              onChanged: (value) {
+                                                setState(() {
+                                                  _noEffectsEnabled = value ?? false;
+                                                });
+                                                appState.toggleNoEffects();
+                                              },
+                                              activeColor: const Color(0xFFCC66FF),
+                                              checkColor: Colors.white,
+                                            ),
+                                            const SizedBox(
+                                              width: 140,
+                                              child: Text(
+                                                'Allow guests to take photos without AI',
+                                                style: TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 13,
+                                                ),
+                                                softWrap: true,
+                                                maxLines: 2,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        Padding(
+                                                                padding: const EdgeInsets.only(left: 16),
+                                          child: Container(
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFF1F2937),
+                                              borderRadius: BorderRadius.circular(8),
+                                              border: Border.all(color: const Color(0xFF374151)),
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                _buildDataSourceButton('Live', 'live'),
+                                                _buildDataSourceButton('Post Delivery', 'post'),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                        _buildCollectionFilter(appState),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 16),
+                                    Expanded(
+                                      child: Builder(
+                                        builder: (context) {
+                                          final list = _getFilteredPresets(appState);
+                                          // Preload thumbnails into cache for use in Select Theme screen
+                                          // Debounced preload: only when the list changes materially
+                                          _debouncedPreloadThumbnails(context, list);
+                                          return ListView.builder(
+                                            itemCount: list.length,
+                                            itemBuilder: (context, index) {
+                                              final preset = list[index];
+                                              return _buildPresetCard(preset, index, appState);
+                                            },
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                    const SizedBox(height: 20),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                                                const SizedBox(height: 34),
+                          Row(
+                            children: [
+                              const Spacer(),
+                              SizedBox(
+                                height: 48,
+                                child: ElevatedButton(
+                                  onPressed: _isNavigating ? null : _onStartBooth,
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFFCC66FF),
+                                    foregroundColor: Colors.white,
+                                    minimumSize: const Size(220, 48),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    elevation: 0,
+                                  ),
+                                  child: _isNavigating
+                                      ? const SizedBox(
+                                          width: 20,
+                                          height: 20,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                          ),
+                                        )
+                                      : const Text(
+                                          'Start Booth',
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                ),
+                              ),
+                              const Spacer(),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              if (appState.currentUser != null)
+                const Positioned(
+                  left: 20,
+                  bottom: 20,
+                  child: UserProfileWidget(),
+                ),
+            ],
+          );
+        },
+      ),
+              );
+            }
+
+            // Landscape: use fixed canvas approach
             return SizedBox(
               width: viewport.maxWidth,
               height: viewport.maxHeight - safeVerticalPadding,
@@ -129,6 +365,9 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                     leftPad = max(16, 265 * scale);
                     rightPad = max(16, 120 * scale);
                   }
+                  const double shiftLeft = 50;
+                  leftPad = max(0, leftPad - shiftLeft);
+                  rightPad = rightPad + shiftLeft;
                   return Padding(
                     padding: EdgeInsets.fromLTRB(leftPad, 0, rightPad, 0),
                     child: Center(
@@ -188,7 +427,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                                         ),
                                         SizedBox(height: 6),
                                         Text(
-                                          'Upload your theme thumbnails and add URL details below.',
+                                          'Upload your theme thumbnails.',
                                           style: TextStyle(
                                             fontSize: 14,
                                             color: Color(0xFFCCCCCC),
@@ -213,17 +452,23 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                                               activeColor: const Color(0xFFCC66FF),
                                               checkColor: Colors.white,
                                             ),
-                                            const Text(
-                                              'No effects',
+                                            const SizedBox(
+                                              width: 140,
+                                              child: Text(
+                                              'Allow guests to take photos without AI',
                                               style: TextStyle(
                                                 color: Colors.white,
                                                 fontSize: 13,
+                                                ),
+                                                softWrap: true,
+                                                maxLines: 2,
+                                                overflow: TextOverflow.ellipsis,
                                               ),
                                             ),
                                           ],
                                         ),
                                         Padding(
-                                                                padding: const EdgeInsets.only(left: 100),
+                                                                padding: const EdgeInsets.only(left: 16),
                                           child: Container(
                                             decoration: BoxDecoration(
                                               color: const Color(0xFF1F2937),
@@ -247,6 +492,9 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                                       child: Builder(
                                         builder: (context) {
                                           final list = _getFilteredPresets(appState);
+                                          // Preload thumbnails into cache for use in Select Theme screen
+                                          // Debounced preload: only when the list changes materially
+                                          _debouncedPreloadThumbnails(context, list);
                                           return ListView.builder(
                                             itemCount: list.length,
                                             itemBuilder: (context, index) {
@@ -258,44 +506,6 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                                       ),
                                     ),
                                     const SizedBox(height: 20),
-                                    SizedBox(
-                                      width: double.infinity,
-                                      height: 40,
-                                      child: MouseRegion(
-                                        cursor: SystemMouseCursors.click,
-                                        child: ElevatedButton(
-                                          onPressed: () => _onAddTheme(appState),
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor: Colors.transparent,
-                                            foregroundColor: Colors.white,
-                                            side: const BorderSide(
-                                              color: Color(0xFF080C1B),
-                                              width: 2,
-                                            ),
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius: BorderRadius.circular(10),
-                                            ),
-                                            elevation: 0,
-                                            padding: const EdgeInsets.all(8),
-                                          ).copyWith(
-                                            backgroundColor: MaterialStateProperty.resolveWith<Color?>(
-                                              (Set<MaterialState> states) {
-                                                if (states.contains(MaterialState.hovered)) {
-                                                                        return const Color(0xFFCC66FF);
-                                                }
-                                                return Colors.transparent;
-                                              },
-                                            ),
-                                          ),
-                                          child: const Text(
-                                            '+  Add a new theme',
-                                            style: TextStyle(
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
                                   ],
                                 ),
                               ),
@@ -308,7 +518,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                               SizedBox(
                                 height: 48,
                                 child: ElevatedButton(
-                                  onPressed: _onStartBooth,
+                                  onPressed: _isNavigating ? null : _onStartBooth,
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: const Color(0xFFCC66FF),
                                     foregroundColor: Colors.white,
@@ -318,7 +528,16 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                                     ),
                                     elevation: 0,
                                   ),
-                                  child: const Text(
+                                  child: _isNavigating
+                                      ? const SizedBox(
+                                          width: 20,
+                                          height: 20,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                          ),
+                                        )
+                                      : const Text(
                                     'Start Booth',
                                     style: TextStyle(
                                       fontSize: 14,
@@ -352,7 +571,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                     )
                   : FittedBox(
                       fit: BoxFit.contain,
-                      alignment: Alignment.topCenter,
+                      alignment: Alignment.center,
                       child: SizedBox(
                         width: _baseWidth,
                         height: effectiveBaseHeight,
@@ -360,6 +579,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
         builder: (context, appState, child) {
           print("🔄 MainScreen Consumer rebuild - dataSource: ${appState.dataSource}, presets: ${appState.presets.length}");
           if (_lastDataSource != appState.dataSource) {
+            print("🔍 Data source changed from '$_lastDataSource' to '${appState.dataSource}', resetting collection filter");
             WidgetsBinding.instance.addPostFrameCallback((_) {
               setState(() {
                 _lastDataSource = appState.dataSource;
@@ -379,6 +599,9 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                     leftPad = max(16, 265 * scale);
                     rightPad = max(16, 120 * scale);
                   }
+                  const double shiftLeft = 50;
+                  leftPad = max(0, leftPad - shiftLeft);
+                  rightPad = rightPad + shiftLeft;
                   return Padding(
                     padding: EdgeInsets.fromLTRB(leftPad, 0, rightPad, 0),
                     child: Center(
@@ -438,7 +661,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                                         ),
                                         SizedBox(height: 6),
                                         Text(
-                                          'Upload your theme thumbnails and add URL details below.',
+                                          'Upload your theme thumbnails',
                                           style: TextStyle(
                                             fontSize: 14,
                                             color: Color(0xFFCCCCCC),
@@ -463,17 +686,23 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                                               activeColor: const Color(0xFFCC66FF),
                                               checkColor: Colors.white,
                                             ),
-                                            const Text(
-                                              'No effects',
+                                            const SizedBox(
+                                              width: 140,
+                                              child: Text(
+                                                'Allow guests to take photos without AI',
                                               style: TextStyle(
                                                 color: Colors.white,
                                                 fontSize: 13,
+                                                ),
+                                                softWrap: true,
+                                                maxLines: 2,
+                                                overflow: TextOverflow.ellipsis,
                                               ),
                                             ),
                                           ],
                                         ),
                                         Padding(
-                                                          padding: const EdgeInsets.only(left: 100),
+                                                          padding: const EdgeInsets.only(left: 16),
                                           child: Container(
                                             decoration: BoxDecoration(
                                               color: const Color(0xFF1F2937),
@@ -497,6 +726,9 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                                       child: Builder(
                                         builder: (context) {
                                           final list = _getFilteredPresets(appState);
+                                          // Preload thumbnails into cache for use in Select Theme screen
+                                          // Debounced preload: only when the list changes materially
+                                          _debouncedPreloadThumbnails(context, list);
                                           return ListView.builder(
                                             itemCount: list.length,
                                             itemBuilder: (context, index) {
@@ -508,44 +740,6 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                                       ),
                                     ),
                                     const SizedBox(height: 20),
-                                    SizedBox(
-                                      width: double.infinity,
-                                      height: 40,
-                                      child: MouseRegion(
-                                        cursor: SystemMouseCursors.click,
-                                        child: ElevatedButton(
-                                          onPressed: () => _onAddTheme(appState),
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor: Colors.transparent,
-                                            foregroundColor: Colors.white,
-                                            side: const BorderSide(
-                                              color: Color(0xFF080C1B),
-                                              width: 2,
-                                            ),
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius: BorderRadius.circular(10),
-                                            ),
-                                            elevation: 0,
-                                            padding: const EdgeInsets.all(8),
-                                          ).copyWith(
-                                            backgroundColor: MaterialStateProperty.resolveWith<Color?>(
-                                              (Set<MaterialState> states) {
-                                                if (states.contains(MaterialState.hovered)) {
-                                                                  return const Color(0xFFCC66FF);
-                                                }
-                                                return Colors.transparent;
-                                              },
-                                            ),
-                                          ),
-                                          child: const Text(
-                                            '+  Add a new theme',
-                                            style: TextStyle(
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
                                   ],
                                 ),
                               ),
@@ -558,7 +752,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                               SizedBox(
                                 height: 48,
                                 child: ElevatedButton(
-                                  onPressed: _onStartBooth,
+                                  onPressed: _isNavigating ? null : _onStartBooth,
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: const Color(0xFFCC66FF),
                                     foregroundColor: Colors.white,
@@ -568,7 +762,16 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                                     ),
                                     elevation: 0,
                                   ),
-                                  child: const Text(
+                                  child: _isNavigating
+                                      ? const SizedBox(
+                                          width: 20,
+                                          height: 20,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                          ),
+                                        )
+                                      : const Text(
                                     'Start Booth',
                                     style: TextStyle(
                                       fontSize: 14,
@@ -699,17 +902,23 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                     child: preset.generatedImageUrls.isNotEmpty
                         ? ClipRRect(
                             borderRadius: BorderRadius.circular(6),
-                            child: Image.network(
+                          child: Builder(
+                            builder: (context) {
+                              final dpr = MediaQuery.of(context).devicePixelRatio;
+                              return Image(
+                              image: ThumbnailCacheService.instance.providerForResized(
                               preset.generatedImageUrls,
+                                  cacheWidth: (120 * dpr).round(),
+                                  cacheHeight: (120 * dpr).round(),
+                              ),
                               key: ValueKey('img-${appState.dataSource}-${preset.presetId}-${preset.generatedImageUrls}'),
-                              fit: BoxFit.cover,
-                              cacheWidth: 120,
-                              cacheHeight: 120,
+                                fit: BoxFit.contain,
+                                alignment: Alignment.center,
+                                filterQuality: FilterQuality.high,
                               gaplessPlayback: true,
                               loadingBuilder: (context, child, loadingProgress) {
                                 if (loadingProgress == null) return child;
                                 assert(() {
-                                  // ignore: avoid_print
                                   print("📥 Loading image for '${preset.title}': ${loadingProgress.cumulativeBytesLoaded} / ${loadingProgress.expectedTotalBytes ?? 'unknown'}");
                                   return true;
                                 }());
@@ -723,9 +932,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                               },
                               errorBuilder: (context, error, stackTrace) {
                                 assert(() {
-                                  // ignore: avoid_print
                                   print("❌ Error loading image for '${preset.title}' from URL: ${preset.generatedImageUrls}");
-                                  // ignore: avoid_print
                                   print("   Error: $error");
                                   return true;
                                 }());
@@ -740,11 +947,13 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                                     width: 48,
                                     height: 48,
                                     decoration: BoxDecoration(
-                                      color: const Color(0xFF7C3AED), // PRIMARY color from legacy
+                                        color: const Color(0xFF7C3AED),
                                       borderRadius: BorderRadius.circular(6),
                                       border: Border.all(color: const Color(0xFF6B7280), width: 1),
                                     ),
                                   ),
+                                  );
+                                },
                                 );
                               },
                             ),
@@ -773,6 +982,8 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                   // Browse button - moved down 5 pixels
                   Padding(
                     padding: const EdgeInsets.only(top: 6), // Move down by 5 pixels
+                    child: MouseRegion(
+                      cursor: SystemMouseCursors.click,
                     child: GestureDetector(
                       onTap: () => _onBrowseImage(index, appState),
                       child: Container(
@@ -789,6 +1000,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                             style: TextStyle(
                               fontSize: 16,
                               color: Colors.white,
+                            ),
                             ),
                           ),
                         ),
@@ -820,31 +1032,6 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                         ),
                       ),
                       const Spacer(),
-                      Transform.translate(
-                        offset: const Offset(-3, 0), // Move 2 pixels to the left
-                        child: IconButton(
-                              onPressed: () => appState.deletePreset(index),
-                          icon: Container(
-                            decoration: BoxDecoration(
-                              border: Border.all(
-                                color: const Color(0xFFDC2626).withOpacity(0.3),
-                                width: 1,
-                              ),
-                              borderRadius: BorderRadius.circular(2),
-                            ),
-                            padding: const EdgeInsets.all(2), // 2x2px inset
-                            child: const Text(
-                              '🗑️',
-                              style: TextStyle(
-                                fontSize: 16,
-                                color: Color(0xFFDC2626),
-                              ),
-                            ),
-                          ),
-                          constraints: const BoxConstraints(),
-                          padding: EdgeInsets.zero,
-                        ),
-                      ),
                     ],
                   ),
                 ),
@@ -866,9 +1053,12 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                           if (controller.text != preset.title && !controller.selection.isValid) {
                             controller.text = preset.title;
                           }
-                          return TextFormField(
+                          return IgnorePointer(
+                            ignoring: true,
+                            child: TextFormField(
                         key: ValueKey('title-${appState.dataSource}-${preset.presetId}'),
                         controller: controller,
+                              readOnly: true,
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 14, // Exact font size from legacy
@@ -882,138 +1072,89 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                             fontSize: 14,
                           ),
                         ),
-                        onChanged: (value) {
-                          final updatedPreset = preset.copyWith(title: value);
-                          appState.updatePreset(index, updatedPreset);
-                          // Debounced save to Firebase - exactly like legacy app
-                          final presetService = PresetService();
-                          presetService.debouncedSavePresetFieldById(preset.presetId, 'name', value);
-                        },
+                            ),
                           );
                         },
                       ),
                 ),
                 
-                const SizedBox(height: 6), // Reduced spacing
-                
-                // Collection label
+                const SizedBox(height: 8),
+                // Prompt label
                 const Text(
-                  'Collection:',
+                  'Prompt',
                   style: TextStyle(
                     color: Color(0xFF9CA3AF),
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                
-                // Collection dropdown - fluid width with max 667, height 33
-                Container(
-                  width: double.infinity,
-                  constraints: const BoxConstraints(maxWidth: 667),
-                  height: 33,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF080C1B),
-                    border: Border.all(color: const Color(0xFF374151)),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: DropdownButtonFormField2<String>(
-                    key: ValueKey('collection-${appState.dataSource}-${preset.presetId}-${preset.collection}'),
-                    value: _getValidDropdownValue(preset.collection, appState.collections),
-                    decoration: const InputDecoration(
-                      border: InputBorder.none,
-                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    ),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 14, // Exact font size from legacy
-                    ),
-                    dropdownStyleData: const DropdownStyleData(
-                      maxHeight: 280,
-                      width: 360,
-                      decoration: BoxDecoration(color: Color(0xFF1F2937)),
-                    ),
-                    menuItemStyleData: const MenuItemStyleData(
-                      height: 32,
-                      padding: EdgeInsets.symmetric(horizontal: 12),
-                    ),
-                    buttonStyleData: const ButtonStyleData(
-                      width: 360,
-                    ),
-                    iconStyleData: const IconStyleData(
-                      icon: ChevronWidget(isUpward: false, color: Color(0xFF7C3AED), size: 12),
-                    ),
-                    onMenuStateChange: (isOpen) {
-                      if (!isOpen) {
-                        _escFocusNode.requestFocus();
-                      }
-                    },
-                    items: _buildDropdownItems(appState.collections),
-                    onChanged: (value) {
-                      if (value == '+ Create New Collection...') {
-                        _showCreateCollectionDialog(context, appState, index, preset);
-                      } else {
-                        _onCollectionChanged(index, value ?? 'Default', appState, preset);
-                      }
-                    },
-                  ),
-                ),
-                
-                const SizedBox(height: 6), // Reduced spacing
-                
-                // API endpoint label
-                const Text(
-                  'API endpoint:',
-                  style: TextStyle(
-                    color: Color(0xFF9CA3AF),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                
-                // API endpoint input - fluid width with max 667, height 33
-                Container(
-                  width: double.infinity,
-                  constraints: const BoxConstraints(maxWidth: 667),
-                  height: 33,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF080C1B),
-                    border: Border.all(color: const Color(0xFF374151)),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                      child: TextFormField(
-                        key: ValueKey('url-${appState.dataSource}-${preset.presetId}-${preset.postProcessingUrl}'),
-                        initialValue: preset.postProcessingUrl,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 14, // Exact font size from legacy
-                        ),
-                        decoration: const InputDecoration(
-                          border: InputBorder.none,
-                          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 6), // Exact padding from legacy
-                          hintText: 'https://example.com/process-image',
-                          hintStyle: TextStyle(
-                            color: Color(0xFF6B7280),
-                            fontSize: 14,
-                          ),
-                        ),
-                        onChanged: (value) {
-                          final updatedPreset = preset.copyWith(postProcessingUrl: value);
-                          appState.updatePreset(index, updatedPreset);
-                          // Debounced save to Firebase - exactly like legacy app
-                          final presetService = PresetService();
-                          presetService.debouncedSavePresetFieldById(preset.presetId, 'url', value);
-                        },
+                // Read-only prompt field (2 lines), copy on double-click (non-focusable)
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTapDown: (_) => _escFocusNode.requestFocus(),
+                  onDoubleTap: () {
+                    Clipboard.setData(ClipboardData(text: preset.prompt));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Prompt copied'),
+                        backgroundColor: Color(0xFF10B981),
+                        duration: Duration(seconds: 1),
                       ),
+                    );
+                  },
+                  child: Container(
+                  width: double.infinity,
+                  constraints: const BoxConstraints(maxWidth: 667),
+                    height: 60,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF080C1B),
+                    border: Border.all(color: const Color(0xFF374151)),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      child: SelectionArea(
+                        child: Text(
+                          (preset.prompt.isNotEmpty ? preset.prompt : 'No prompt provided.'),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white, fontSize: 13, height: 1.2),
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
-                
-                const SizedBox(height: 4), // Reduced spacing to prevent overflow
-                
-                // Helper text
-                const Text(
-                  'The URL where the photo will be sent for processing (optional).',
-                  style: TextStyle(
-                    color: Color(0xFF6B7280),
-                    fontSize: 11,
+                // Credits pill (right-aligned)
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Builder(
+                    builder: (context) {
+                      final isPost = preset.postProcessingUrl.toLowerCase().contains('post-delivery');
+                      final creditText = isPost ? '0.5 credits' : '0.3 credits';
+                      final bg = isPost ? const Color(0xFF201219) : const Color(0xFF131A12);
+                      final bd = isPost ? const Color(0xFF502337) : const Color(0xFF2A3A2A);
+                      final fg = isPost ? const Color(0xFFF087A5) : const Color(0xFF84E18D);
+                      return Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                          color: bg,
+                          border: Border.all(color: bd),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.currency_exchange, size: 14, color: fg),
+                            const SizedBox(width: 6),
+                            Text(
+                              creditText,
+                              style: TextStyle(color: fg, fontSize: 12, fontWeight: FontWeight.w700),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
                   ),
                 ),
               ],
@@ -1026,35 +1167,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
   }
 
 
-  void _onAddTheme(AppState appState) {
-    // Create new preset exactly like legacy app
-    final newPreset = Preset(
-      url: "",
-      name: "Untitled Theme",
-      thumbnailPath: "",
-      title: "Untitled Theme",
-      postProcessingUrl: "",
-      generatedImageUrls: "https://firebasestorage.googleapis.com/v0/b/ai-booth-edda3.firebasestorage.app/o/generations%2F1yOQlRrxwrOvv6L5urQM4pTTTFV2%2Finputs%2Fsecond%2F1760111631964_1760111619628_fk0nq2_0_WhatsApp%20Image%202025-10-10%20at%208.51.04%20PM.jpeg?alt=media&token=fd6cc553-5084-4684-9ba3-3ec036f9b384",
-      createdAt: DateTime.now().millisecondsSinceEpoch.toString(),
-      presetId: _generateRandomId(8), // Generate random 8-character ID
-      collectionId: "", // Will be inherited from collection when saved
-      collection: "Default",
-    );
-    
-    appState.addPreset(newPreset);
-    
-    // Scroll to bottom to show the new card (like legacy app)
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final scrollController = Scrollable.of(context);
-      if (scrollController != null) {
-        scrollController.position.animateTo(
-          scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
-      }
-    });
-  }
+  // Add new theme functionality removed per requirement
 
   // Generate random ID like legacy app
   String _generateRandomId(int length) {
@@ -1110,96 +1223,10 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
       }
     }
     
-    // Add "Create New Collection" option
-    items.add(const DropdownMenuItem(
-      value: '+ Create New Collection...',
-      child: SizedBox(width: 180, child: Text('+ Create New Collection...', overflow: TextOverflow.ellipsis)),
-    ));
-    
     return items;
   }
 
-  void _showCreateCollectionDialog(BuildContext context, AppState appState, int index, Preset preset) {
-    final controller = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1F2937),
-        title: const Text(
-          'New Collection',
-          style: TextStyle(color: Colors.white),
-        ),
-        content: TextField(
-          controller: controller,
-          style: const TextStyle(color: Colors.white),
-          decoration: const InputDecoration(
-            hintText: 'Enter collection name:',
-            hintStyle: TextStyle(color: Color(0xFF6B7280)),
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(color: Color(0xFF9CA3AF))),
-          ),
-          TextButton(
-            onPressed: () {
-              if (controller.text.trim().isNotEmpty) {
-                final collectionName = controller.text.trim();
-                Navigator.pop(context);
-                _onCollectionChanged(index, collectionName, appState, preset);
-              }
-            },
-            child: const Text('Create', style: TextStyle(color: Color(0xFFCC66FF))),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // Handle collection dropdown change - exactly like legacy app
-  void _onCollectionChanged(int index, String collectionName, AppState appState, Preset preset) {
-    // Update the preset's collection in memory - exactly like legacy
-    final oldCollection = preset.collection;
-    final updatedPreset = preset.copyWith(collection: collectionName);
-    
-    // Check if collection already exists to avoid duplicates
-    final existingCollection = appState.collections.firstWhere(
-      (collection) => collection.name == collectionName,
-      orElse: () => Collection(id: '', name: '', description: ''),
-    );
-    
-    String collectionId;
-    if (existingCollection.name.isNotEmpty) {
-      // Use existing collection ID (8-character random string)
-      collectionId = existingCollection.id; // Use the 8-character ID
-    } else {
-      // Generate random collection ID (8 characters) only for new collections
-      collectionId = _generateRandomId(8);
-      // Create collection document in Firebase only for new collections
-      _createCollectionInFirebase(collectionName, collectionId);
-    }
-    
-    final presetWithCollectionId = updatedPreset.copyWith(collectionId: collectionId);
-    
-    // Update preset in app state
-    appState.updatePreset(index, presetWithCollectionId);
-    
-    // Use debounced save with field-level updates (prevents Firestore duplication) - exactly like legacy
-    final presetService = PresetService();
-    presetService.debouncedSavePresetFieldById(preset.presetId, 'collection', collectionName);
-  }
-
-  // Create collection in Firebase - exactly like legacy app
-  void _createCollectionInFirebase(String collectionName, String collectionId) async {
-    try {
-      final presetService = PresetService();
-      await presetService.createCollectionInFirebase(collectionName, collectionId);
-    } catch (e) {
-      print(" Error creating collection in Firebase: $e");
-    }
-  }
+  // Collection edit handlers removed (collections are read-only in UI)
 
   void _onBrowseImage(int index, AppState appState) async {
     try {
@@ -1232,7 +1259,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
           final currentPreset = appState.presets[index];
           await LogService.log('ThumbSelect:uploaded url=$imageUrl for presetId=${currentPreset.presetId}');
           final updatedPreset = currentPreset.copyWith(generatedImageUrls: imageUrl);
-          await appState.updatePreset(index, updatedPreset);
+          // Local UI will refresh from service callback; no direct AppState update needed
           await presetService.appendGeneratedImageUrlToPreset(currentPreset, imageUrl);
           await LogService.log('ThumbSelect:append complete presetId=${currentPreset.presetId}');
           
@@ -1267,13 +1294,41 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     }
   }
 
-  void _onStartBooth() {
-    // Navigate to booth selection screen
-    Navigator.of(context).push(
+  void _onStartBooth() async {
+    // Prevent multiple simultaneous navigations
+    if (_isNavigating) return;
+    
+    // Prevent navigation during rebuild
+    if (!mounted) return;
+    
+    setState(() {
+      _isNavigating = true;
+    });
+    
+    try {
+      // Use a small delay to ensure the widget tree is stable
+      await Future.delayed(const Duration(milliseconds: 50));
+      
+      if (!mounted) return;
+      
+    // Navigate directly to Select Theme screen, passing current collection filter (if any)
+      await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => const BoothSelectionScreen(),
+        builder: (context) => BoothSelectionScreen(
+          collectionFilter: _selectedCollectionFilter,
+        ),
       ),
     );
+    } catch (e) {
+      // Log error but don't show to user unless critical
+      print('Error navigating to booth selection: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isNavigating = false;
+        });
+      }
+    }
   }
 
   /// Build real-time connection indicator
@@ -1313,16 +1368,33 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
       return appState.presets; // Show all presets
     }
     
-    final filtered = appState.presets.where((preset) => preset.collection == _selectedCollectionFilter).toList();
+    // Debug logging to help identify the issue
+    print("🔍 Filtering presets by collection: '$_selectedCollectionFilter'");
+    print("   Total presets: ${appState.presets.length}");
+    print("   Available collections: ${appState.collections.map((c) => c.name).toList()}");
+    
+    final filtered = appState.presets.where((preset) {
+      final matches = preset.collection == _selectedCollectionFilter;
+      if (!matches) {
+        print("   Preset '${preset.title}' has collection '${preset.collection}' (doesn't match '$_selectedCollectionFilter')");
+      }
+      return matches;
+    }).toList();
+    
+    print("   Filtered result: ${filtered.length} presets");
     return filtered;
   }
 
   // Build enhanced collection filter dropdown
   Widget _buildCollectionFilter(AppState appState) {
     // Validate that selected collection exists in current data source
+    // Only reset if collections are loaded and the selected collection is not found
     if (_selectedCollectionFilter != null && 
+        appState.collections.isNotEmpty &&
         !appState.collections.any((c) => c.name == _selectedCollectionFilter)) {
       // Reset filter if selected collection doesn't exist in current data source
+      print("🔍 Collection filter validation: '$_selectedCollectionFilter' not found in collections, resetting filter");
+      print("   Available collections: ${appState.collections.map((c) => c.name).toList()}");
       WidgetsBinding.instance.addPostFrameCallback((_) {
         setState(() {
           _selectedCollectionFilter = null;
@@ -1330,16 +1402,34 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
       });
     }
     
-    return StatefulBuilder(
-      builder: (context, setState) {
+    return SizedBox(
+      width: 200,
+      height: 36,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          const Positioned(
+            top: -28,
+            left: 0,
+            child: Text(
+              'Select a collection for the event',
+              style: TextStyle(
+                color: Color(0xFF9CA3AF),
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          StatefulBuilder(
+      builder: (context, localSetState) {
         bool isHovered = false;
         bool isFocused = false;
         
         return MouseRegion(
-          onEnter: (_) => setState(() => isHovered = true),
-          onExit: (_) => setState(() => isHovered = false),
+          onEnter: (_) => localSetState(() => isHovered = true),
+          onExit: (_) => localSetState(() => isHovered = false),
           child: Focus(
-            onFocusChange: (hasFocus) => setState(() => isFocused = hasFocus),
+            onFocusChange: (hasFocus) => localSetState(() => isFocused = hasFocus),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               width: 200,
@@ -1391,6 +1481,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                   ),
                   items: _buildCollectionFilterItems(appState.collections),
                   onChanged: (value) {
+                    print("🔍 Collection filter changed to: '$value'");
                     setState(() {
                       _selectedCollectionFilter = value;
                     });
@@ -1422,12 +1513,21 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
           ),
         );
       },
+        ),
+        ],
+      ),
     );
   }
 
   // Build collection filter dropdown items
   List<DropdownMenuItem<String>> _buildCollectionFilterItems(List<Collection> collections) {
     final items = <DropdownMenuItem<String>>[];
+    
+    // Debug logging
+    print("🔍 Building collection filter items for ${collections.length} collections:");
+    for (final collection in collections) {
+      print("   - '${collection.name}' (ID: ${collection.id})");
+    }
     
     // Add "All Collections" option
     items.add(const DropdownMenuItem<String>(
@@ -1470,3 +1570,5 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     return items;
   }
 }
+
+// _PromptText removed; rendering handled inline with SelectionArea.

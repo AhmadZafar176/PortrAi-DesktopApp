@@ -4,13 +4,11 @@ import '../models/preset.dart';
 class PresetCard extends StatelessWidget {
   final Preset preset;
   final VoidCallback onEdit;
-  final VoidCallback onDelete;
 
   const PresetCard({
     super.key,
     required this.preset,
     required this.onEdit,
-    required this.onDelete,
   });
 
   @override
@@ -110,16 +108,6 @@ class PresetCard extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 20,
                       color: Color(0xFF94A3B8),
-                    ),
-                  ),
-                ),
-                IconButton(
-                  onPressed: onDelete,
-                  icon: const Text(
-                    '🗑️',
-                    style: TextStyle(
-                      fontSize: 20,
-                      color: Color(0xFFEF4444),
                     ),
                   ),
                 ),

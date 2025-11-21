@@ -15,10 +15,10 @@ class LogService {
       if (!await dir.exists()) {
         await dir.create(recursive: true);
       }
-      _logFilePath = p.join(dirPath, 'log.txt');
+      _logFilePath = p.join(dirPath, 'logs.txt');
 
       // Start a new section in the log for each run
-      final banner = '===== ${DateTime.now().toIso8601String()} START (pid?) =====\n';
+      final banner = '===== ${DateTime.now().toIso8601String()} START =====\n';
       await File(_logFilePath!).writeAsString(banner, mode: FileMode.append, flush: true);
     } catch (_) {
       // Ignore logging init errors

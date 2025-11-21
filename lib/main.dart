@@ -14,6 +14,7 @@ import 'services/file_processing_service.dart';
 import 'services/log_service.dart';
 import 'worker_overlay_app.dart';
 import 'done_button_app.dart';
+import 'services/event_server_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -141,11 +142,13 @@ class PortraiApp extends StatefulWidget {
 
 class _PortraiAppState extends State<PortraiApp> {
   final IPCService _ipcService = IPCService();
+  final EventServerService _eventServer = EventServerService();
 
   @override
   void initState() {
     super.initState();
     _startIPCServer();
+    _startEventServer();
   }
 
   /// Start IPC server to receive files from other instances
@@ -163,6 +166,15 @@ class _PortraiAppState extends State<PortraiApp> {
     }
   }
 
+  void _startEventServer() async {
+    final ok = await _eventServer.start(port: 8000);
+    if (!ok) {
+      await LogService.log('EventServer: failed to bind');
+    } else {
+      await LogService.log('EventServer: started on 127.0.0.1:8000');
+    }
+  }
+
   /// Process files in context (needs BuildContext for Provider access)
   void _processFilesInContext(List<String> filePaths, String requestId) {
     // We need a BuildContext to access Provider
@@ -177,6 +189,7 @@ class _PortraiAppState extends State<PortraiApp> {
   @override
   void dispose() {
     _ipcService.dispose();
+    _eventServer.dispose();
     super.dispose();
   }
 

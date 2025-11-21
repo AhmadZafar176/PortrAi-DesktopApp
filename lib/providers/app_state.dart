@@ -36,15 +36,21 @@ class AppState extends ChangeNotifier {
 
   // Initialize the app state
   void initialize() {
+    // ignore: avoid_print
+    print('AppState:initialize');
     // Set up real-time callback
     _presetService.setDataChangedCallback(handleRealtimeUpdate);
     
     _authService.userStream.listen((user) {
       _currentUser = user;
       if (user != null) {
+        // ignore: avoid_print
+        print('AppState:user signed in ${user.uid}');
         _loadUserData();
         _loadUserSettings();
       } else {
+        // ignore: avoid_print
+        print('AppState:user signed out');
         _presets.clear();
         _collections.clear();
         _presetPassword = '';
@@ -140,39 +146,6 @@ class AppState extends ChangeNotifier {
     _presetService.updateDataSource(_dataSource);
     
     notifyListeners();
-  }
-
-  // Add preset
-  Future<void> addPreset(Preset preset) async {
-    try {
-      final newPreset = await _presetService.addPreset(preset);
-      _presets = _presetService.getPresetsForDataSource(_dataSource);
-      notifyListeners();
-    } catch (e) {
-      debugPrint('Error adding preset: $e');
-    }
-  }
-
-  // Update preset
-  Future<void> updatePreset(int index, Preset preset) async {
-    try {
-      await _presetService.updatePreset(index, preset);
-      _presets = _presetService.getPresetsForDataSource(_dataSource);
-      notifyListeners();
-    } catch (e) {
-      debugPrint('Error updating preset: $e');
-    }
-  }
-
-  // Delete preset
-  Future<void> deletePreset(int index) async {
-    try {
-      await _presetService.deletePreset(index);
-      _presets = _presetService.getPresetsForDataSource(_dataSource);
-      notifyListeners();
-    } catch (e) {
-      debugPrint('Error deleting preset: $e');
-    }
   }
 
   // Add collection - exactly like legacy app

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -66,6 +67,12 @@ class FileProcessingService {
       await maybeSignalCompletion();
       return;
     }
+    // Validate a theme (preset) is selected
+    if (appState.selectedIndex < 0 || appState.selectedIndex >= appState.presets.length) {
+      _showErrorDialog(context, "Select a theme first.");
+      await maybeSignalCompletion();
+      return;
+    }
     
     // Filter valid image files (JPG/PNG only)
     final validFiles = filePaths.where(_isImageFile).toList();
@@ -129,14 +136,46 @@ class FileProcessingService {
   /// Process files with no effects (exactly like legacy app)
   static Future<void> _processNoEffects(List<String> filePaths) async {
     print('🔄 Processing no effects for ${filePaths.length} files');
-    
+
     for (final filePath in filePaths) {
       final file = File(filePath);
-      if (await file.exists()) {
-        // Simply touch the file (no actual processing needed)
-        // This matches the legacy app's behavior
-        await file.writeAsBytes(await file.readAsBytes());
-        print('✅ Processed (no effects): $filePath');
+      if (!await file.exists()) {
+        continue;
+      }
+
+      try {
+        final orig = await file.readAsBytes();
+        final ext = path.extension(filePath).toLowerCase();
+        Uint8List mutated;
+
+        if (ext == '.jpg' || ext == '.jpeg') {
+          mutated = _jpegInsertComment(orig, 'no_effects_${DateTime.now().millisecondsSinceEpoch}');
+        } else if (ext == '.png') {
+          mutated = _pngInsertTextChunk(
+            orig,
+            'no_effects',
+            DateTime.now().millisecondsSinceEpoch.toString(),
+          );
+        } else {
+          // Unknown format: best-effort timestamp bump
+          await file.writeAsBytes(orig, flush: true);
+          try { await file.setLastModified(DateTime.now()); } catch (_) {}
+          print('✅ Processed (no effects, timestamp only): $filePath');
+          continue;
+        }
+
+        await file.writeAsBytes(mutated, flush: true);
+        print('✅ Processed (no effects, metadata touch): $filePath');
+      } catch (e) {
+        // Fallback: force a rewrite and bump timestamp
+        try {
+          final orig = await file.readAsBytes();
+          await file.writeAsBytes(orig, flush: true);
+          await file.setLastModified(DateTime.now());
+          print('✅ Processed (no effects, fallback timestamp): $filePath');
+        } catch (_) {
+          // ignore final failure
+        }
       }
     }
   }
@@ -206,10 +245,11 @@ class FileProcessingService {
     final requestId = const Uuid().v4();
 
     if (context != null) {
+      // Avoid preloading all originals for performance; only track paths
       _pendingRequests[requestId] = _PendingRequest(
         context: context,
         filePaths: filePaths,
-        originalBytes: await _readOriginalImages(filePaths),
+        originalBytes: const {},
       );
       // Defer showing the processing overlay until after the request is sent.
     }
@@ -263,6 +303,7 @@ class FileProcessingService {
       final encodedUrl = uri.toString();
       
       print('🌐 Making HTTP request to: $encodedUrl');
+      await LogService.log('HTTP: send id=$requestId url=$encodedUrl files=${filePaths.length} wait=$waitForResponse');
       
       // Build multipart form: fileToUpload (binary) + password + metadata JSON
       final uriParsed = Uri.parse(encodedUrl);
@@ -295,6 +336,7 @@ class FileProcessingService {
 
       final streamed = await request.send();
       final response = await http.Response.fromStream(streamed);
+      await LogService.log('HTTP: received id=$requestId status=${response.statusCode} bytes=${response.bodyBytes.length} contentType=${(response.headers['content-type'] ?? '').toLowerCase()}');
       
       if (waitForResponse) {
         // Handle response for live processing
@@ -302,12 +344,10 @@ class FileProcessingService {
           final contentType = (response.headers['content-type'] ?? '').toLowerCase();
           print('✅ HTTP request successful: ${response.statusCode} (content-type: $contentType)');
           if (contentType.startsWith('image/')) {
-            // Binary image response; wrap into our expected JSON-like structure
-            final base64Data = base64Encode(response.bodyBytes);
-            final dataUri = 'data:$contentType;base64,$base64Data';
+            // Binary image response; store raw bytes directly for speed
             _pendingResponses[requestId] = {
               'files': [
-                {'data': dataUri},
+                {'bytes': response.bodyBytes},
               ]
             };
           } else if (contentType.startsWith('application/json') || contentType.contains('json')) {
@@ -315,22 +355,18 @@ class FileProcessingService {
                 jsonDecode(response.body) as Map<String, dynamic>;
             print('📄 JSON Response parsed');
           } else {
-            // Fallback: try JSON, else treat as binary with JPEG/PNG based on original file
+            // Fallback: try JSON, else treat as binary bytes
             try {
               _pendingResponses[requestId] =
                   jsonDecode(response.body) as Map<String, dynamic>;
               print('📄 Fallback JSON Response parsed');
             } catch (_) {
-              final base64Data = base64Encode(response.bodyBytes);
-              final ext = filePaths.isNotEmpty ? path.extension(filePaths.first).toLowerCase() : '.jpg';
-              final fallbackType = (ext == '.png') ? 'image/png' : 'image/jpeg';
-              final dataUri = 'data:$fallbackType;base64,$base64Data';
               _pendingResponses[requestId] = {
                 'files': [
-                  {'data': dataUri},
+                  {'bytes': response.bodyBytes},
                 ]
               };
-              print('📦 Wrapped non-JSON response as $fallbackType');
+              print('📦 Stored non-JSON response as raw bytes');
             }
           }
         } else {
@@ -355,6 +391,97 @@ class FileProcessingService {
     if (ext == '.png') return MediaType('image', 'png');
     // Default to JPEG for .jpg/.jpeg and any other (which should be filtered out already)
     return MediaType('image', 'jpeg');
+  }
+
+  // ===== No-Effects Byte Mutation Helpers =====
+  static Uint8List _jpegInsertComment(Uint8List bytes, String comment) {
+    // JPEG must start with SOI 0xFF,0xD8
+    if (bytes.length < 2 || bytes[0] != 0xFF || bytes[1] != 0xD8) return bytes;
+    final payload = Uint8List.fromList(comment.codeUnits);
+    // COM marker: 0xFF 0xFE + length (2 bytes, includes these 2) + data
+    final len = payload.length + 2;
+    final builder = BytesBuilder();
+    builder.add([0xFF, 0xFE, (len >> 8) & 0xFF, len & 0xFF]);
+    builder.add(payload);
+
+    final out = BytesBuilder();
+    out.add([0xFF, 0xD8]); // SOI
+    out.add(builder.toBytes());
+    out.add(bytes.sublist(2));
+    return out.toBytes();
+  }
+
+  static Uint8List _pngInsertTextChunk(Uint8List bytes, String key, String text) {
+    // PNG signature
+    const sig = [137, 80, 78, 71, 13, 10, 26, 10];
+    if (bytes.length < 8) return bytes;
+    for (int i = 0; i < 8; i++) {
+      if (bytes[i] != sig[i]) return bytes; // Not a PNG
+    }
+
+    // Find IEND to insert before it
+    int i = 8;
+    while (i + 12 <= bytes.length) {
+      final length = _u32be(bytes, i);
+      final type = String.fromCharCodes(bytes.sublist(i + 4, i + 8));
+      final next = i + 12 + length;
+      if (next > bytes.length) break;
+      if (type == 'IEND') {
+        // Build tEXt chunk: data = key + 0x00 + text
+        final data = Uint8List.fromList([
+          ...key.codeUnits,
+          0x00,
+          ...text.codeUnits,
+        ]);
+        final chunk = _pngChunk('tEXt', data);
+        final out = BytesBuilder();
+        out.add(bytes.sublist(0, i)); // up to IEND
+        out.add(chunk);
+        out.add(bytes.sublist(i)); // IEND and after
+        return out.toBytes();
+      }
+      i = next;
+    }
+    return bytes;
+  }
+
+  static int _u32be(Uint8List b, int off) {
+    return (b[off] << 24) | (b[off + 1] << 16) | (b[off + 2] << 8) | b[off + 3];
+  }
+
+  static Uint8List _pngChunk(String type, Uint8List data) {
+    final typeBytes = Uint8List.fromList(type.codeUnits);
+    final len = data.length;
+    final buf = BytesBuilder();
+    // length (big-endian)
+    buf.add([ (len >> 24) & 0xFF, (len >> 16) & 0xFF, (len >> 8) & 0xFF, len & 0xFF ]);
+    // type + data
+    final body = BytesBuilder();
+    body.add(typeBytes);
+    body.add(data);
+    final bodyBytes = body.toBytes();
+    buf.add(bodyBytes);
+    // crc of type+data
+    final crc = _crc32(bodyBytes);
+    buf.add([ (crc >> 24) & 0xFF, (crc >> 16) & 0xFF, (crc >> 8) & 0xFF, crc & 0xFF ]);
+    return buf.toBytes();
+  }
+
+  static int _crc32(Uint8List data) {
+    // Precomputed table
+    const poly = 0xEDB88320;
+    final table = List<int>.generate(256, (n) {
+      var c = n;
+      for (int k = 0; k < 8; k++) {
+        c = (c & 1) != 0 ? (poly ^ (c >> 1)) : (c >> 1);
+      }
+      return c;
+    });
+    var crc = 0xFFFFFFFF;
+    for (final b in data) {
+      crc = table[(crc ^ b) & 0xFF] ^ (crc >> 8);
+    }
+    return (crc ^ 0xFFFFFFFF) & 0xFFFFFFFF;
   }
 
   /// Replace with original images (exactly like legacy app)
@@ -461,19 +588,9 @@ class FileProcessingService {
       );
     }
 
+    // Hide wait overlay immediately after writing processed files.
     OverlayManager.hideOverlay();
-    OverlayManager.showDone(pending.context, () async {
-      appState.setStayMinimizedDuringCapture(false);
-      if (Platform.isWindows) {
-        await windowManager.restore();
-        await windowManager.show();
-        await windowManager.focus();
-        await windowManager.setFullScreen(true);
-      }
-      // Small delay to ensure window is fully visible before navigation
-      await Future.delayed(const Duration(milliseconds: 100));
-      Navigator.of(pending.context).pop();
-    });
+    // Done overlay removed; final completion is driven by event_server session_end.
   }
 
   static Future<void> _storeProcessedFile(
@@ -482,17 +599,31 @@ class FileProcessingService {
     List<int>? fallbackBytes,
   ) async {
     final file = File(filePath);
+    final start = DateTime.now();
+    await LogService.log('WRITE: start path=$filePath');
     if (processedData is Map<String, dynamic>) {
+      final raw = processedData['bytes'];
+      if (raw is List<int>) {
+        await file.writeAsBytes(raw, flush: true);
+        final elapsed = DateTime.now().difference(start).inMilliseconds;
+        await LogService.log('WRITE: done path=$filePath bytes=${raw.length} ms=$elapsed');
+        return;
+      }
+      // Legacy base64 path
       final data = processedData['data'];
       if (data is String) {
         final bytes = base64Decode(data.split(',').last);
-        await file.writeAsBytes(bytes);
+        await file.writeAsBytes(bytes, flush: true);
+        final elapsed = DateTime.now().difference(start).inMilliseconds;
+        await LogService.log('WRITE: done(path-base64) path=$filePath bytes=${bytes.length} ms=$elapsed');
         return;
       }
     }
 
     if (fallbackBytes != null) {
-      await file.writeAsBytes(fallbackBytes);
+      await file.writeAsBytes(fallbackBytes, flush: true);
+      final elapsed = DateTime.now().difference(start).inMilliseconds;
+      await LogService.log('WRITE: fallback path=$filePath bytes=${fallbackBytes.length} ms=$elapsed');
     }
   }
 
