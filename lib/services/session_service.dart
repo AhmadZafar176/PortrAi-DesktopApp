@@ -39,8 +39,8 @@ class SessionService {
 
       await file.writeAsString(jsonEncode(data));
     } catch (e) {
-      // Best-effort; log and continue
-      // ignore: avoid_print
+
+
       print('❌ Failed to save session preset: $e');
     }
   }
@@ -61,7 +61,7 @@ class SessionService {
         isNoEffects: (data['isNoEffects'] ?? false) as bool,
       );
     } catch (e) {
-      // ignore: avoid_print
+
       print('❌ Failed to load session preset: $e');
       return null;
     }

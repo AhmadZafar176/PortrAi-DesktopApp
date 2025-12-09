@@ -17,7 +17,7 @@ class ThemeConfigurationSection extends StatelessWidget {
       ),
       child: Column(
         children: [
-          // Header
+
           const Padding(
             padding: EdgeInsets.all(20),
             child: Column(
@@ -42,8 +42,7 @@ class ThemeConfigurationSection extends StatelessWidget {
               ],
             ),
           ),
-          
-          // Controls row
+
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Row(
@@ -66,7 +65,7 @@ class ThemeConfigurationSection extends StatelessWidget {
                   ),
                 ),
                 const Spacer(),
-                // Data source switch
+
                 Consumer<AppState>(
                   builder: (context, appState, child) {
                     return Container(
@@ -95,8 +94,7 @@ class ThemeConfigurationSection extends StatelessWidget {
               ],
             ),
           ),
-          
-          // Presets scroll area
+
           Expanded(
             child: Consumer<AppState>(
               builder: (context, appState, child) {
@@ -134,8 +132,7 @@ class ThemeConfigurationSection extends StatelessWidget {
               },
             ),
           ),
-          
-          // Add theme button removed per requirement
+
         ],
       ),
     );
@@ -162,14 +159,12 @@ class ThemeConfigurationSection extends StatelessWidget {
     );
   }
 
-  // _addTheme removed per requirement
 
   void _editPreset(BuildContext context, preset) {
-    // TODO: Show edit preset dialog
+
     debugPrint('Edit preset: ${preset.title}');
   }
 
-  // _deletePreset removed per requirement
 }
 
 

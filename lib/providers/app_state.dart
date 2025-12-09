@@ -16,13 +16,12 @@ class AppState extends ChangeNotifier {
   List<Collection> _collections = [];
   bool _isDarkMode = false;
   bool _noEffectsEnabled = false;
-  String _dataSource = "live"; // "live" or "post"
+  String _dataSource = "live";
   bool _isLoading = false;
-  int _selectedIndex = 0; // Track selected preset index (exactly like legacy app)
+  int _selectedIndex = 0;
   bool _stayMinimizedDuringCapture = false;
   String _presetPassword = '';
 
-  // Getters
   app_user.User? get currentUser => _currentUser;
   List<Preset> get presets => _presets;
   List<Collection> get collections => _collections;
@@ -34,22 +33,17 @@ class AppState extends ChangeNotifier {
   bool get stayMinimizedDuringCapture => _stayMinimizedDuringCapture;
   String get presetPassword => _presetPassword;
 
-  // Initialize the app state
   void initialize() {
-    // ignore: avoid_print
     print('AppState:initialize');
-    // Set up real-time callback
     _presetService.setDataChangedCallback(handleRealtimeUpdate);
     
     _authService.userStream.listen((user) {
       _currentUser = user;
       if (user != null) {
-        // ignore: avoid_print
         print('AppState:user signed in ${user.uid}');
         _loadUserData();
         _loadUserSettings();
       } else {
-        // ignore: avoid_print
         print('AppState:user signed out');
         _presets.clear();
         _collections.clear();
@@ -59,7 +53,6 @@ class AppState extends ChangeNotifier {
     });
   }
 
-  // Load user data from Firebase
   Future<void> _loadUserData() async {
     if (_currentUser == null) return;
     
@@ -75,7 +68,6 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  // Load user-level settings like presetPassword from /users/{uid}
   Future<void> _loadUserSettings() async {
     try {
       if (_currentUser == null) return;
@@ -93,19 +85,16 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  // Toggle dark mode
   void toggleDarkMode() {
     _isDarkMode = !_isDarkMode;
     notifyListeners();
   }
 
-  // Toggle no effects
   void toggleNoEffects() {
     _noEffectsEnabled = !_noEffectsEnabled;
     notifyListeners();
   }
 
-  // Set selected index (exactly like legacy app)
   void setSelectedIndex(int index) {
     if (index >= 0 && index < _presets.length) {
       _selectedIndex = index;
@@ -118,7 +107,6 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Create "No Effects" preset (exactly like legacy app)
   Preset createNoEffectsPreset() {
     return Preset(
       title: "No Effects",
@@ -129,12 +117,10 @@ class AppState extends ChangeNotifier {
     );
   }
 
-  // Set data source
   void setDataSource(String source) {
     print("🔄 AppState: Switching data source from '$_dataSource' to '$source'");
     _dataSource = source;
     
-    // Force re-categorization of presets based on URLs
     _presetService.recategorizePresets();
     
     _presets = _presetService.getPresetsForDataSource(_dataSource);
@@ -142,25 +128,19 @@ class AppState extends ChangeNotifier {
     
     print("🔄 AppState: After switch - ${_presets.length} presets, ${_collections.length} collections");
     
-    // Update data source in PresetService and restart listeners
     _presetService.updateDataSource(_dataSource);
     
     notifyListeners();
   }
 
-  // Add collection - exactly like legacy app
   Future<void> addCollection(Collection collection) async {
     try {
-      // Generate random collection ID (8 characters) - exactly like legacy
       final collectionId = _generateRandomId(8);
       
-      // Create collection in Firebase - exactly like legacy app
       await _presetService.createCollectionInFirebase(collection.name, collectionId);
       
-      // Add to local collections
       _collections.add(collection);
       
-      // Refresh collections from Firebase to get the latest data
       await _presetService.initialize();
       _collections = _presetService.getCollectionsForDataSource(_dataSource);
       
@@ -170,7 +150,6 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  // Generate random ID like legacy app
   String _generateRandomId(int length) {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
     final random = Random();
@@ -179,7 +158,6 @@ class AppState extends ChangeNotifier {
     );
   }
 
-  // Update collection
   Future<void> updateCollection(Collection collection) async {
     try {
       await _authService.saveCollection(collection);
@@ -193,7 +171,6 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  // Delete collection
   Future<void> deleteCollection(String collectionName) async {
     try {
       await _authService.deleteCollection(collectionName);
@@ -204,29 +181,24 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  // Sign in with email and password
   Future<void> signInWithEmailAndPassword(String email, String password) async {
     try {
       await _authService.signInWithEmailAndPassword(email, password);
-      // User state will be updated by the auth state listener
     } catch (e) {
       debugPrint('Error signing in: $e');
       rethrow;
     }
   }
 
-  // Sign in with Google
   Future<void> signInWithGoogle() async {
     try {
       await _authService.signInWithGoogle();
-      // User state will be updated by the auth state listener
     } catch (e) {
       debugPrint('Error signing in with Google: $e');
       rethrow;
     }
   }
 
-  // Sign out
   Future<void> signOut() async {
     try {
       await _authService.signOut();
@@ -239,38 +211,28 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  // Navigate to saved presets
   void navigateToSavedPresets() {
-    // TODO: Implement navigation to saved presets screen
     debugPrint('Navigate to saved presets');
   }
 
-  // Set loading state
   void _setLoading(bool loading) {
     _isLoading = loading;
     notifyListeners();
   }
 
-  // ===== REAL-TIME UPDATES =====
-  
-  /// Handle real-time updates from Firebase listeners
   void handleRealtimeUpdate() {
     print("🔄 AppState: Handling real-time update from Firebase");
     
-    // Refresh data from PresetService
     _presets = _presetService.getPresetsForDataSource(_dataSource);
     _collections = _presetService.getCollectionsForDataSource(_dataSource);
     
-    // Notify UI of changes
     notifyListeners();
     
     print("✅ AppState: Updated with ${_presets.length} presets and ${_collections.length} collections");
   }
 
-  /// Check if real-time listeners are active
   bool get isRealtimeListening => _presetService.isListening;
 
-  /// Restart real-time listeners (useful when switching data sources)
   Future<void> restartRealtimeListeners() async {
     await _presetService.restartListeners();
     handleRealtimeUpdate();

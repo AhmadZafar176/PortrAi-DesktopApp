@@ -4,23 +4,19 @@ class Preset {
   final String collectionId;
   final String presetId;
   final String title;
-  final String generatedImageUrls; // Firebase Storage URL for thumbnail
+  final String generatedImageUrls;
   final String postProcessingUrl;
   final String createdAt;
   
-  // Legacy fields for backward compatibility
   final String url;
   final String name;
   final String thumbnailPath;
   final String collection;
   
-  // Excluded fields (not synced to Firebase)
-  final String prompt; // This field is excluded from Firebase sync
+  final String prompt;
   
-  // Virtual field for "No Effects" preset (exactly like legacy app)
   final bool isNoEffects;
   
-  // Sync metadata for conflict resolution
   final int lastModified;
   final bool isLocalChange;
 
@@ -28,7 +24,7 @@ class Preset {
     this.collectionId = "",
     this.presetId = "",
     this.title = "",
-    this.generatedImageUrls = "https://firebasestorage.googleapis.com/v0/b/ai-booth-edda3.firebasestorage.app/o/generations%2F1yOQlRrxwrOvv6L5urQM4pTTTFV2%2Finputs%2Fsecond%2F1760111631964_1760111619628_fk0nq2_0_WhatsApp%20Image%202025-10-10%20at%208.51.04%20PM.jpeg?alt=media&token=fd6cc553-5084-4684-9ba3-3ec036f9b384",
+    this.generatedImageUrls = "https:
     this.postProcessingUrl = "",
     this.createdAt = "",
     this.url = "",
@@ -41,7 +37,6 @@ class Preset {
     this.isLocalChange = false,
   });
 
-  // Factory constructor from Map (for Firebase)
   factory Preset.fromMap(Map<String, dynamic> map) {
     return Preset(
       collectionId: map['collectionId'] ?? "",
@@ -61,7 +56,6 @@ class Preset {
     );
   }
 
-  // Helper method to parse Timestamp or String to String
   static String _parseTimestamp(dynamic value) {
     if (value == null) return "";
     if (value is Timestamp) {
@@ -73,13 +67,10 @@ class Preset {
     return value.toString();
   }
 
-  // Helper method to parse generatedImageUrls (List or String) to String
   static String _parseImageUrls(dynamic value) {
-    const defaultUrl = "https://firebasestorage.googleapis.com/v0/b/ai-booth-edda3.firebasestorage.app/o/generations%2F1yOQlRrxwrOvv6L5urQM4pTTTFV2%2Finputs%2Fsecond%2F1760111631964_1760111619628_fk0nq2_0_WhatsApp%20Image%202025-10-10%20at%208.51.04%20PM.jpeg?alt=media&token=fd6cc553-5084-4684-9ba3-3ec036f9b384";
+    const defaultUrl = "https:
     
     assert(() {
-      // Debug-only logging
-      // ignore: avoid_print
       print("🖼️ _parseImageUrls received: $value (type: ${value.runtimeType})");
       return true;
     }());
@@ -95,7 +86,6 @@ class Preset {
     }
     if (value is List) {
       assert(() { print("   → List with ${value.length} items"); return true; }());
-      // If it's a list, take the first URL
       if (value.isNotEmpty && value[0] is String) {
         final result = (value[0] as String).isNotEmpty ? value[0] as String : defaultUrl;
         assert(() { print("   → Returning first item: $result"); return true; }());
@@ -108,7 +98,6 @@ class Preset {
     return defaultUrl;
   }
 
-  // Convert to Map (for Firebase)
   Map<String, dynamic> toMap() {
     return {
       'collectionId': collectionId,
@@ -128,17 +117,14 @@ class Preset {
     };
   }
 
-  // Convert to JSON (for local storage)
   Map<String, dynamic> toJson() {
     return toMap();
   }
 
-  // Create from JSON (for local storage)
   factory Preset.fromJson(Map<String, dynamic> json) {
     return Preset.fromMap(json);
   }
 
-  // Copy with method for updates
   Preset copyWith({
     String? collectionId,
     String? presetId,

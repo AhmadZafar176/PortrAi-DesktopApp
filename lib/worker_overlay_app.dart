@@ -30,7 +30,6 @@ class _WorkerOverlayAppState extends State<WorkerOverlayApp> with WindowListener
 
   Future<void> _initWorkerWindow() async {
     await windowManager.ensureInitialized();
-    // Fullscreen initial window; content will manage overlays
     await windowManager.setTitleBarStyle(TitleBarStyle.hidden);
     await windowManager.setFullScreen(true);
     await windowManager.show();
@@ -64,14 +63,12 @@ class _WorkerOverlayScreenState extends State<_WorkerOverlayScreen> {
   @override
   void initState() {
     super.initState();
-    // Start processing after first frame so overlay can mount
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       OverlayManager.showProcessing(context, 'Waiting for processed image…');
       final code = await FileProcessingService.processFilesHeadless(widget.files);
       OverlayManager.hideOverlay();
       _exitCode = code;
 
-      // Immediately exit worker; the main app will bring its own Done button
       await SessionService.signalWorkerDone();
       exit(_exitCode);
     });

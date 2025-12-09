@@ -17,11 +17,10 @@ class LogService {
       }
       _logFilePath = p.join(dirPath, 'logs.txt');
 
-      // Start a new section in the log for each run
       final banner = '===== ${DateTime.now().toIso8601String()} START =====\n';
       await File(_logFilePath!).writeAsString(banner, mode: FileMode.append, flush: true);
     } catch (_) {
-      // Ignore logging init errors
+
     }
   }
 
@@ -34,7 +33,7 @@ class LogService {
       await File(_logFilePath!)
           .writeAsString('[$ts] $message\n', mode: FileMode.append, flush: false);
     } catch (_) {
-      // Ignore logging errors to avoid cascading failures
+
     }
   }
 

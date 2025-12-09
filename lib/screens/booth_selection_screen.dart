@@ -15,11 +15,10 @@ import '../models/collection.dart';
 import '../widgets/chevron_widget.dart';
 import '../services/thumbnail_cache_service.dart';
 
-/// Booth Selection Screen - Horizontal carousel matching legacy app exactly
 class BoothSelectionScreen extends StatefulWidget {
   const BoothSelectionScreen({super.key, this.collectionFilter});
 
-  final String? collectionFilter; // null means show all
+  final String? collectionFilter;
 
   @override
   State<BoothSelectionScreen> createState() => _BoothSelectionScreenState();
@@ -27,7 +26,7 @@ class BoothSelectionScreen extends StatefulWidget {
 
 class _BoothSelectionScreenState extends State<BoothSelectionScreen>
     with SingleTickerProviderStateMixin {
-  // Design canvas for 1:1 rendering
+
   static const double _baseWidth = 1920;
   static const double _baseHeight = 1080;
   List<Preset> _currentPresets = [];
@@ -39,40 +38,37 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
   Timer? _workerPollTimer;
   Timer? _donePollTimer;
   bool _minimizing = false;
-  
-  // Square cards with responsive sizing (maintains 3-card layout)
+
   static const double baseWidth = 600.0;
   static const double baseHeight = 600.0;
-  static const double aspectRatio = 1.0; // Square aspect ratio
+  static const double aspectRatio = 1.0;
   static const double minWidth = 550.0;
   static const double maxWidth = 700.0;
   static const double gap = 80.0;
-  static const double gapLandscape = 30.0; // Reduced gap for landscape
-  static const double gapPortrait = 150.0; // Large gap for portrait to ensure only one card visible
-  static const double wheelSpeed = 0.28; // gentler scroll feel
+  static const double gapLandscape = 30.0;
+  static const double gapPortrait = 150.0;
+  static const double wheelSpeed = 0.28;
   static const int minDuration = 300;
   static const int maxDuration = 800;
-  static const int snapDuration = 300; // Longer duration for smoother motion
-  static const int snapDurationLandscape = 300; // Faster snap for landscape
-  static const int snapIdle = 150; // Shorter idle for quicker response
+  static const int snapDuration = 300;
+  static const int snapDurationLandscape = 300;
+  static const int snapIdle = 150;
   static const double snapHysteresis = 0.30;
 
   bool _isUserScrolling = false;
-  
-  /// Get gap between cards based on orientation
+
   double _getGap() {
     if (!mounted) return gap;
     final orientation = MediaQuery.of(context).orientation;
     if (orientation == Orientation.landscape) {
       return gapLandscape;
     } else {
-      return gapPortrait; // Portrait uses minimal gap
+      return gapPortrait;
     }
   }
   bool _showLeftArrow = false;
   bool _showRightArrow = false;
-  
-  // Responsive card dimensions (calculated from screen width)
+
   double _cardWidth = baseWidth;
   double _cardHeight = baseHeight;
   bool _hasPostDeliveryPreset = false;
@@ -80,19 +76,18 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
   @override
   void initState() {
     super.initState();
-    // Verbose log
-    // ignore: avoid_print
+
+
     print('BoothSelectionScreen:init');
     _selectedIndex = 0;
     _scrollController.addListener(_onScroll);
-    
-    // Request focus for ESC key handling - exactly like legacy app
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _focusNode.requestFocus();
       _updateArrows();
       _calculateResponsiveCardSize();
       _setFullscreenFrameless();
-      // ignore: avoid_print
+
       print('BoothSelectionScreen:postFrame ready');
       _initPresetsFromFilter();
     });
@@ -104,8 +99,7 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
       await windowManager.setTitleBarStyle(TitleBarStyle.hidden);
     }
   }
-  
-  /// Calculate responsive card size with dynamic centering for 1-3 cards
+
   void _calculateResponsiveCardSize() {
     if (!mounted) return;
     
@@ -113,33 +107,32 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
     final orientation = MediaQuery.of(context).orientation;
     
     if (orientation == Orientation.portrait) {
-      // Portrait mode: single large card that fills most of the screen width
-      // Use 88% of screen width to ensure only one card is visible at a time
+
+
       final screenHeight = MediaQuery.of(context).size.height;
       final maxCardByWidth = screenWidth * 0.88;
-      final maxCardByHeight = screenHeight * 0.60; // Use up to 60% of height
-      // Use the smaller of the two to maintain square aspect ratio
+      final maxCardByHeight = screenHeight * 0.60;
+
       _cardWidth = math.min(maxCardByWidth, maxCardByHeight);
-      _cardHeight = _cardWidth; // Square cards
+      _cardHeight = _cardWidth;
     } else {
-      // Landscape mode: 3 cards
+
       const maxVisibleCols = 3;
       final currentGap = _getGap();
-      final totalGaps = (maxVisibleCols - 1) * currentGap; // 2 gaps
+      final totalGaps = (maxVisibleCols - 1) * currentGap;
       
       final availableWidth = screenWidth - totalGaps;
       final calculatedWidth = availableWidth / maxVisibleCols;
-      
-      // Force larger cards to ensure only 3 fit - use calculated width but with higher minimum
+
       _cardWidth = math.max(minWidth, calculatedWidth);
-      _cardHeight = _cardWidth; // Square cards (aspect ratio = 1.0)
+      _cardHeight = _cardWidth;
     }
     
-    setState(() {}); // Trigger rebuild with new dimensions
+    setState(() {});
   }
 
   String _labelForPreset(Preset preset) {
-    // Prefer explicit presetType if available on the model (name or url fallback)
+
     final type = (preset.postProcessingUrl.toLowerCase().contains('post-delivery'))
         ? 'post-delivery'
         : 'live';
@@ -148,7 +141,7 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
 
   void _initPresetsFromFilter() {
     final appState = Provider.of<AppState>(context, listen: false);
-    // Ignore data source: combine live and post-delivery presets
+
     final presetService = PresetService();
     final allPresets = <Preset>[
       ...presetService.localPresets,
@@ -162,7 +155,6 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
       list = allPresets.where((p) => p.collection == filter).toList();
     }
 
-    // Add No Effects if enabled
     if (appState.noEffectsEnabled) {
       final noEffectsPreset = _createNoEffectsPreset();
       list.insert(0, noEffectsPreset);
@@ -176,7 +168,6 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
       );
     });
 
-    // After the list is built and ListView attached to the controller, refresh arrows
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _updateArrows();
     });
@@ -195,8 +186,7 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
 
   void _onScroll() {
     _updateArrows();
-    
-    // Update selected index based on centered card
+
     final orientation = MediaQuery.of(context).orientation;
     if (_scrollController.hasClients && _currentPresets.isNotEmpty) {
       final vpw = MediaQuery.of(context).size.width;
@@ -204,7 +194,7 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
       
       final itemCount = _currentPresets.length;
       if (orientation == Orientation.portrait) {
-        // Portrait: card centered on screen
+
         final center = _scrollController.offset + vpw / 2.0;
         final horizontalPadding = (vpw - _cardWidth) / 2.0;
         final cardCenterOffset = horizontalPadding + _cardWidth / 2.0;
@@ -218,7 +208,7 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
           });
         }
       } else {
-        // Landscape: card below the title (centered card)
+
         final horizontalPadding = (vpw - _cardWidth) / 2.0;
         final screenCenter = _scrollController.offset + vpw / 2.0;
         final relativeCenter = screenCenter - horizontalPadding;
@@ -232,8 +222,7 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
         }
       }
     }
-    
-    // Start coalesce timer for snap
+
     _isUserScrolling = true;
     _coalesceTimer?.cancel();
     _coalesceTimer = Timer(const Duration(milliseconds: snapIdle), () {
@@ -264,22 +253,20 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
     
     final itemCount = _currentPresets.length;
     if (orientation == Orientation.portrait) {
-      // Portrait: snap to center of each card
+
       final center = _scrollController.offset + vpw / 2.0;
       final horizontalPadding = (vpw - _cardWidth) / 2.0;
       final cardCenterOffset = horizontalPadding + _cardWidth / 2.0;
       final relativeOffset = center - cardCenterOffset;
       final idxFloat = relativeOffset / step;
       final clampedIdx = math.max(0, math.min(itemCount - 1, idxFloat.round()));
-      
-      // Update selected index to the centered card
+
       if (clampedIdx != _selectedIndex) {
         setState(() {
           _selectedIndex = clampedIdx;
         });
       }
-      
-      // Snap to the center of the selected card
+
       final target = horizontalPadding + clampedIdx * step + _cardWidth / 2.0 - vpw / 2.0;
       final clampedTarget = math.max(
         0.0,
@@ -288,7 +275,7 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
       
       _animateTo(clampedTarget, duration: snapDurationLandscape);
     } else {
-      // Landscape: use consistent centering logic
+
       final horizontalPadding = (vpw - _cardWidth) / 2.0;
       final screenCenter = _scrollController.offset + vpw / 2.0;
       final relativeCenter = screenCenter - horizontalPadding;
@@ -332,13 +319,11 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
     
     final start = _scrollController.offset;
     final distance = (target - start).abs();
-    
-    // Skip if already very close to target
+
     if (distance < 0.5) return;
     
     final actualDuration = duration ?? _calculateDuration(start, target);
-    
-    // Use very smooth, fluid curve for both orientations (watery smooth)
+
     final curve = Curves.easeOutQuart;
     
     _scrollController.animateTo(
@@ -350,10 +335,10 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
 
   int _calculateDuration(double start, double target) {
     final dist = (target - start).abs();
-    // Distance-based duration with smoother scaling
+
     final normalized = math.min(1.0, dist / 1200.0);
-    // Use a gentler power curve for smoother duration transitions
-    final eased = math.pow(normalized, 0.5) as double; // Smoother duration curve
+
+    final eased = math.pow(normalized, 0.5) as double;
     final duration = (minDuration + (maxDuration - minDuration) * eased).toInt();
     return math.max(minDuration, math.min(maxDuration, duration));
   }
@@ -371,8 +356,7 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
     );
     
     _animateTo(target);
-    
-    // Start coalesce for snap after arrow click
+
     _coalesceTimer?.cancel();
     _coalesceTimer = Timer(const Duration(milliseconds: snapIdle), () {
       _snapToCard(hysteresis: true);
@@ -387,7 +371,7 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
       title: 'No Effects',
       url: '',
       postProcessingUrl: '',
-      // Leave empty so UI uses the same placeholder as default
+
       generatedImageUrls: '',
       collection: 'No Effects',
       thumbnailPath: '',
@@ -402,7 +386,6 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
       return;
     }
 
-    // TODO: Implement photo booth logic (minimize app, wait for files)
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Photo booth mode activated! Waiting for images...'),
@@ -413,16 +396,14 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
 
     appState.setStayMinimizedDuringCapture(true);
 
-    // Persist selected preset for worker mode (second instance)
     final preset = _currentPresets[_selectedIndex];
     await SessionService.saveSelectedPreset(preset, presetPassword: appState.presetPassword);
-    
-    // Clear any previous completion signals
+
     await SessionService.clearWorkerDone();
     await SessionService.clearDonePressed();
 
     if (Platform.isWindows) {
-      // Seamless minimize: fade out, exit fullscreen if needed, then minimize
+
       if (_minimizing) return;
       _minimizing = true;
       try {
@@ -435,14 +416,13 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
         }
         await windowManager.minimize();
       } catch (_) {
-        // ignore
+
       } finally {
-        // Keep opacity at 0; restore flow will bring it back to 1.0
+
         _minimizing = false;
       }
     }
-    
-    // Start polling for worker completion signal
+
     _startWorkerCompletionPolling(appState);
   }
   
@@ -454,14 +434,13 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
         timer.cancel();
         await SessionService.clearWorkerDone();
         if (mounted) {
-          // Stop showing the Done overlay; rely solely on server-driven completion
+
           _startDonePressedPolling(appState);
         }
       }
     });
   }
 
-  // Removed Done overlay launcher; server 'session_end' will trigger completion
 
   bool _restoring = false;
   Future<void> _restoreSeamless(AppState appState) async {
@@ -500,7 +479,7 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
   }
 
   void _handleEscKey() async {
-    // Consistent fullscreen policy: just navigate back without toggling fullscreen
+
     Navigator.of(context).pop();
   }
 
@@ -513,7 +492,7 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
     return KeyboardListener(
       focusNode: _focusNode,
       onKeyEvent: (KeyEvent event) {
-        // Handle ESC key exactly like legacy app
+
         if (event is KeyDownEvent) {
           if (event.logicalKey == LogicalKeyboardKey.escape) {
             _handleEscKey();
@@ -550,7 +529,7 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
                     !isPortrait && viewport.maxWidth >= _baseWidth && viewport.maxHeight >= effectiveBaseHeight;
 
                 Widget contentBuilder() {
-                  // Original body, now built inside base-sized box
+
                   return LayoutBuilder(
                     builder: (context, constraints) {
                       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -565,17 +544,17 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
                               Column(
                                 children: [
                                   Container(
-                                    padding: EdgeInsets.only(top: isPortrait ? 282.0 : 32.0), // 32 + 250 = 282 for portrait
+                                    padding: EdgeInsets.only(top: isPortrait ? 282.0 : 32.0),
                                     child: Column(
                                       children: [
-                                        // Take Picture button at top in portrait mode
+
                                         if (_currentPresets.isNotEmpty && isPortrait) ...[
                                           _buildTakePictureButton(),
                                           const SizedBox(height: 16),
                                         ],
-                                        // Title below button in portrait, at top in landscape
+
                                         Padding(
-                                          padding: EdgeInsets.only(top: isPortrait ? 90.0 : 32.0), // 340 - 250 = 90 for portrait, 64 - 32 = 32 for landscape
+                                          padding: EdgeInsets.only(top: isPortrait ? 90.0 : 32.0),
                                           child: Text(
                                             'Select Theme',
                                             style: const TextStyle(
@@ -594,8 +573,8 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
                                   Expanded(
                                     child: LayoutBuilder(
                                       builder: (context, constraints) {
-                                        // Center vertically then shift upwards by 10px
-                                        final double arrowTop = constraints.maxHeight / 2 - 22.0 - 10.0; // 22 = half of bubble (44/2)
+
+                                        final double arrowTop = constraints.maxHeight / 2 - 22.0 - 10.0;
                                         return Stack(
                                           clipBehavior: Clip.none,
                                           children: [
@@ -623,11 +602,10 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
                                       },
                                     ),
                                   ),
-                                  
-                                  // Take Picture button at bottom in landscape mode
+
                                   if (_currentPresets.isNotEmpty && !isPortrait)
                                     Transform.translate(
-                                      offset: const Offset(0, -65), // Move button up by 65px
+                                      offset: const Offset(0, -65),
                                       child: _buildTakePictureButton(),
                                     ) else if (_currentPresets.isEmpty) ...[
                                     const SizedBox(height: 72),
@@ -642,7 +620,6 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
                   );
                 }
 
-                // Portrait: render directly without fixed canvas
                 if (isPortrait) {
                   return SizedBox(
                     width: viewport.maxWidth,
@@ -651,7 +628,6 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
                   );
                 }
 
-                // Landscape: use fixed canvas approach
                 return SizedBox(
                   width: viewport.maxWidth,
                   height: viewport.maxHeight - safeVerticalPadding,
@@ -690,7 +666,7 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
   }
 
   Widget _buildEmptyState() {
-    // Ensure focus for ESC key even in empty state
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _focusNode.requestFocus();
     });
@@ -745,7 +721,6 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
     );
   }
 
-  // Collection carousel removed per requirements
 
   Widget _buildPresetsCarousel() {
     if (_currentPresets.isEmpty) {
@@ -766,18 +741,18 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
           if (signal is PointerScrollEvent && _scrollController.hasClients) {
             final dx = signal.scrollDelta.dx;
             final dy = signal.scrollDelta.dy;
-            final primary = dx.abs() > 0.0 ? dx : dy; // prefer horizontal, fallback to vertical
+            final primary = dx.abs() > 0.0 ? dx : dy;
             final target = (_scrollController.offset + primary * -1.0)
                 .clamp(0.0, _scrollController.position.maxScrollExtent);
             _animateTo(target.toDouble());
           }
         },
         child: SizedBox(
-        height: _cardHeight + (MediaQuery.of(context).orientation == Orientation.landscape ? 60 : 100), // Less space in landscape
+        height: _cardHeight + (MediaQuery.of(context).orientation == Orientation.landscape ? 60 : 100),
         child: ListView.builder(
           controller: _scrollController,
           scrollDirection: Axis.horizontal,
-          physics: const ClampingScrollPhysics(), // Disable bouncing for smoother snapping
+          physics: const ClampingScrollPhysics(),
           padding: EdgeInsets.symmetric(
             horizontal: (MediaQuery.of(context).size.width - _cardWidth) / 2,
           ),
@@ -796,7 +771,6 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
     );
   }
 
-  // Collection card removed per requirements
 
   Widget _buildPresetCard(Preset preset, int index) {
     final isSelected = index == _selectedIndex;
@@ -812,7 +786,7 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Preset card - exact from legacy
+
             AnimatedContainer(
               duration: const Duration(milliseconds: 150),
               width: _cardWidth,
@@ -847,7 +821,7 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
                     ? Image(
                         image: (() {
                           final dpr = MediaQuery.of(context).devicePixelRatio;
-                          // Decode to the card's logical width at device scale; let BoxFit handle aspect
+
                           return ThumbnailCacheService.instance.providerForResized(
                             preset.generatedImageUrls,
                             cacheWidth: (_cardWidth * dpr).round(),
@@ -859,14 +833,13 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
                         errorBuilder: (context, error, stackTrace) {
                           return _buildPlaceholderImage();
                         },
-                        // No loadingBuilder; MemoryImage will appear instantly if cached
+
                       )
                     : _buildPlaceholderImage(),
               ),
             ),
             const SizedBox(height: 4),
-            
-            // Preset title - exact from legacy
+
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               child: Text(
@@ -881,7 +854,7 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-          // Preset type label (live / post-delivery)
+
           if (_hasPostDeliveryPreset)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),

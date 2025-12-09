@@ -5,7 +5,7 @@ class Collection {
   final String id;
   final String name;
   final String description;
-  final String thumbnailPath; // Collection thumbnail
+  final String thumbnailPath;
   final List<Preset> presets;
 
   const Collection({
@@ -16,7 +16,6 @@ class Collection {
     this.presets = const [],
   });
 
-  // Factory constructor from Map (for Firebase)
   factory Collection.fromMap(Map<String, dynamic> map) {
     return Collection(
       id: map['id'] ?? "",
@@ -29,7 +28,6 @@ class Collection {
     );
   }
 
-  // Convert to Map (for Firebase)
   Map<String, dynamic> toMap() {
     return {
       'id': id,
@@ -40,17 +38,14 @@ class Collection {
     };
   }
 
-  // Convert to JSON (for local storage)
   Map<String, dynamic> toJson() {
     return toMap();
   }
 
-  // Create from JSON (for local storage)
   factory Collection.fromJson(Map<String, dynamic> json) {
     return Collection.fromMap(json);
   }
 
-  // Copy with method for updates
   Collection copyWith({
     String? id,
     String? name,

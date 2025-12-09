@@ -25,14 +25,13 @@ class _UserProfileWidgetState extends State<UserProfileWidget> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            // Menu (when open) - smooth slide animation
+
             AnimatedSize(
               duration: const Duration(milliseconds: 300),
               curve: Curves.easeInOut,
               child: _isMenuOpen ? _buildSlideOutMenu(appState) : const SizedBox.shrink(),
             ),
-            
-            // Profile button - always visible with enhanced UX
+
             _buildEnhancedProfileButton(appState),
           ],
         );
@@ -47,7 +46,7 @@ class _UserProfileWidgetState extends State<UserProfileWidget> {
       curve: Curves.easeInOut,
       builder: (context, value, child) {
         return Transform.translate(
-          offset: Offset(0, -20 * (1 - value)), // Slide down from above
+          offset: Offset(0, -20 * (1 - value)),
           child: Opacity(
             opacity: value,
             child: Container(
@@ -76,7 +75,7 @@ class _UserProfileWidgetState extends State<UserProfileWidget> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Sign out with hover effect
+
                   _buildSignOutItem(appState),
                 ],
               ),
@@ -199,7 +198,7 @@ class _UserProfileWidgetState extends State<UserProfileWidget> {
                 ),
                 child: Row(
                   children: [
-                    // Avatar
+
                     Container(
                       width: 40,
                       height: 40,
@@ -231,8 +230,7 @@ class _UserProfileWidgetState extends State<UserProfileWidget> {
                     ),
                     
                     const SizedBox(width: 12),
-                    
-                    // User info
+
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -261,8 +259,7 @@ class _UserProfileWidgetState extends State<UserProfileWidget> {
                         ],
                       ),
                     ),
-                    
-                    // Dropdown arrow with animation
+
                     AnimatedRotation(
                       turns: _isMenuOpen ? 0.5 : 0,
                       duration: const Duration(milliseconds: 200),
@@ -283,7 +280,7 @@ class _UserProfileWidgetState extends State<UserProfileWidget> {
   }
 
   Widget _buildFallbackAvatar(dynamic user) {
-    // Get user initials from display name or email
+
     String initials = '';
     if (user.displayName != null && user.displayName!.isNotEmpty) {
       final names = user.displayName!.split(' ');
@@ -293,7 +290,7 @@ class _UserProfileWidgetState extends State<UserProfileWidget> {
         initials = user.displayName![0].toUpperCase();
       }
     } else {
-      // Fallback to email initials
+
       final emailParts = user.email.split('@');
       initials = emailParts[0].substring(0, 1).toUpperCase();
     }
@@ -304,8 +301,8 @@ class _UserProfileWidgetState extends State<UserProfileWidget> {
       decoration: BoxDecoration(
         gradient: const LinearGradient(
           colors: [
-            Color(0xFF7C3AED), // Purple
-            Color(0xFF8B5CF6), // Lighter purple
+            Color(0xFF7C3AED),
+            Color(0xFF8B5CF6),
           ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -339,14 +336,12 @@ class _UserProfileWidgetState extends State<UserProfileWidget> {
     });
   }
 
-  // Helper method to make Google profile image URLs web-compatible
   String _getWebCompatibleImageUrl(String photoURL) {
     print('🖼️ Original photo URL: $photoURL');
-    
-    // Google profile images sometimes have CORS issues on web
-    // Add parameters to make them more web-compatible
+
+
     if (photoURL.contains('googleusercontent.com')) {
-      // Add size parameter to ensure consistent sizing
+
       if (!photoURL.contains('sz=')) {
         final separator = photoURL.contains('?') ? '&' : '?';
         photoURL = '$photoURL${separator}sz=40';

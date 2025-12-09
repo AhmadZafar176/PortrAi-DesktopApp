@@ -26,7 +26,7 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0B1120), // Exact background color from legacy
+      backgroundColor: const Color(0xFF0B1120),
       body: Center(
         child: SingleChildScrollView(
           child: Container(
@@ -37,7 +37,7 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
             padding: const EdgeInsets.all(40),
             decoration: BoxDecoration(
-              color: const Color(0xFF0B1120), // Same as background
+              color: const Color(0xFF0B1120),
               border: Border.all(color: const Color(0xFF374151)),
               borderRadius: BorderRadius.circular(16),
             ),
@@ -47,35 +47,33 @@ class _LoginScreenState extends State<LoginScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                // Header - PortrAI title
+
                 const Text(
                   'PortrAI',
                   style: TextStyle(
                     fontSize: 32,
                     fontWeight: FontWeight.w800,
-                    color: Color(0xFFCC66FF), // Exact color from legacy
+                    color: Color(0xFFCC66FF),
                     height: 1.2,
                   ),
                 ),
                 const SizedBox(height: 8),
-                
-                // Subtitle
+
                 const Text(
                   'Welcome back! Please sign in to continue.',
                   style: TextStyle(
                     fontSize: 16,
-                    color: Color(0xFF9CA3AF), // Exact color from legacy
+                    color: Color(0xFF9CA3AF),
                     height: 1.4,
                   ),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 40),
-                
-                // Form section
+
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Email field
+
                     const Text(
                       'Email',
                       style: TextStyle(
@@ -119,8 +117,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       },
                     ),
                     const SizedBox(height: 16),
-                    
-                    // Password field
+
                     const Text(
                       'Password',
                       style: TextStyle(
@@ -164,8 +161,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       },
                     ),
                     const SizedBox(height: 24),
-                    
-                        // Error message
+
                         if (_errorMessage != null)
                           Container(
                             padding: const EdgeInsets.all(12),
@@ -187,15 +183,14 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                             ),
                           ),
-                    
-                    // Sign in button
+
                     SizedBox(
                       width: double.infinity,
                       height: 48,
                       child: ElevatedButton(
                         onPressed: _isLoading ? null : _signIn,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFCC66FF), // Exact color from legacy
+                          backgroundColor: const Color(0xFFCC66FF),
                           foregroundColor: Colors.white,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(8),
@@ -224,8 +219,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 
                 const SizedBox(height: 24),
-                
-                // Divider
+
                 Row(
                   children: [
                     Expanded(
@@ -254,8 +248,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 
                 const SizedBox(height: 24),
-                
-                // Google sign-in button (enabled; uses desktop OAuth on Windows)
+
                 SizedBox(
                   width: double.infinity,
                   height: 48,
@@ -302,8 +295,7 @@ class _LoginScreenState extends State<LoginScreen> {
         _emailController.text.trim(),
         _passwordController.text,
       );
-      
-      // Navigation will be handled by the auth state listener
+
     } catch (e) {
       setState(() {
         _errorMessage = e.toString().replaceFirst('Exception: ', '');
@@ -328,8 +320,7 @@ class _LoginScreenState extends State<LoginScreen> {
       final appState = Provider.of<AppState>(context, listen: false);
       await appState.signInWithGoogle();
       print('🔍 Google Sign-In completed successfully!');
-      
-      // Navigation will be handled by the auth state listener
+
         } catch (e) {
           print('🔍 Google Sign-In error: $e');
           setState(() {

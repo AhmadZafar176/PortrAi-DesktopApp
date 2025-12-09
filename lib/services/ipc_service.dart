@@ -2,8 +2,7 @@ import 'dart:io';
 import 'dart:convert';
 import 'dart:async';
 
-/// IPC Service for communication between app instances
-/// Handles file passing from second instances to the running instance
+
 class IPCService {
   static const int _port = 45678;
   static const String _appName = 'portrai_app';
@@ -12,8 +11,7 @@ class IPCService {
   StreamSubscription? _subscription;
   Function(String, List<String>)? _onFilesReceived;
   static final Map<String, Completer<void>> _pendingRequests = {};
-  
-  /// Start the IPC server to receive files from other instances
+
   Future<bool> startServer(Function(String, List<String>) onFilesReceived) async {
     try {
       _onFilesReceived = onFilesReceived;
@@ -22,8 +20,7 @@ class IPCService {
       _subscription = _serverSocket!.listen((Socket client) {
         _handleClient(client);
       });
-      
-      // ignore: avoid_print
+
       print('✅ IPC Server started on port $_port');
       return true;
     } catch (e) {
@@ -31,8 +28,7 @@ class IPCService {
       return false;
     }
   }
-  
-  /// Handle incoming client connections
+
   void _handleClient(Socket client) {
     client.listen(
       (data) {
@@ -42,7 +38,6 @@ class IPCService {
           final filePaths = (payload['files'] as List<dynamic>).cast<String>();
           final requestId = payload['id'] as String;
 
-          // ignore: avoid_print
           print('📁 Received files: $filePaths (request $requestId)');
           _onFilesReceived?.call(requestId, filePaths);
 
@@ -57,14 +52,14 @@ class IPCService {
             client.close();
           });
         } catch (e) {
-          // ignore: avoid_print
+
           print('❌ Error handling client: $e');
           client.write('ERROR');
           client.close();
         }
       },
       onError: (error) {
-            // ignore: avoid_print
+
             print('❌ Client error: $error');
         client.close();
       },
@@ -73,8 +68,7 @@ class IPCService {
       },
     );
   }
-  
-  /// Send files to existing instance
+
   static Future<String?> sendFilesToExistingInstance(List<String> filePaths) async {
     try {
       final socket = await Socket.connect(InternetAddress.loopbackIPv4, _port);
@@ -133,8 +127,7 @@ class IPCService {
     final completer = _pendingRequests.remove(requestId);
     completer?.complete();
   }
-  
-  /// Clean up resources
+
   void dispose() {
     _subscription?.cancel();
     _serverSocket?.close();

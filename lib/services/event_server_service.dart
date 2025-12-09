@@ -3,9 +3,8 @@ import 'dart:io';
 import 'log_service.dart';
 import 'session_service.dart';
 
-/// Local HTTP event server.
-/// Listens on 127.0.0.1:8000 and reacts only to event_type=session_end.
-/// All other event types are ignored.
+
+
 class EventServerService {
   HttpServer? _server;
 
@@ -31,7 +30,6 @@ class EventServerService {
       final p2 = qp['param2'];
       final ts = DateTime.now().toIso8601String();
 
-      // Log in requested format
       final logParts = <String>["event_type: '$eventType'"];
       if (p1 != null) logParts.add("param1: '$p1'");
       if (p2 != null) logParts.add("param2: '$p2'");

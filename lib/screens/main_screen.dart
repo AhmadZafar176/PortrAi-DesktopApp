@@ -25,18 +25,18 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> with WindowListener {
-  // Base canvas to maintain proportions across any display
+
   static const double _baseWidth = 1920;
   static const double _baseHeight = 1080;
   final FocusNode _escFocusNode = FocusNode();
   bool _noEffectsEnabled = false;
-  String? _selectedCollectionFilter; // null means show all collections
-  String _lastDataSource = 'live'; // Track last data source to detect changes
-  // Stable controllers for title fields per presetId
+  String? _selectedCollectionFilter;
+  String _lastDataSource = 'live';
+
   final Map<String, TextEditingController> _titleControllers = {};
   String _lastPreloadKey = '';
   Timer? _preloadTimer;
-  bool _isNavigating = false; // Prevent multiple simultaneous navigations
+  bool _isNavigating = false;
 
   TextEditingController _titleControllerFor(Preset preset) {
     return _titleControllers.putIfAbsent(
@@ -95,7 +95,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
             if (Platform.isWindows) {
               await windowManager.close();
             } else {
-              // ignore: use_build_context_synchronously
+
               Navigator.of(context).maybePop();
             }
           }
@@ -114,14 +114,13 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
             final isPortrait = MediaQuery.of(context).orientation == Orientation.portrait;
             final canRenderOneToOne = !isPortrait && viewport.maxWidth >= _baseWidth && viewport.maxHeight >= effectiveBaseHeight;
 
-            // Portrait: render directly without fixed canvas
             if (isPortrait) {
               return SizedBox(
                 width: viewport.maxWidth,
                 height: viewport.maxHeight - safeVerticalPadding,
                 child: Consumer<AppState>(
         builder: (context, appState, child) {
-          // build
+
           if (_lastDataSource != appState.dataSource) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
               setState(() {
@@ -256,8 +255,8 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                                       child: Builder(
                                         builder: (context) {
                                           final list = _getFilteredPresets(appState);
-                                          // Preload thumbnails into cache for use in Select Theme screen
-                                          // Debounced preload: only when the list changes materially
+
+
                                           _debouncedPreloadThumbnails(context, list);
                                           return ListView.builder(
                                             itemCount: list.length,
@@ -332,7 +331,6 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
               );
             }
 
-            // Landscape: use fixed canvas approach
             return SizedBox(
               width: viewport.maxWidth,
               height: viewport.maxHeight - safeVerticalPadding,
@@ -344,7 +342,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                         height: effectiveBaseHeight,
                         child: Consumer<AppState>(
         builder: (context, appState, child) {
-          // build
+
           if (_lastDataSource != appState.dataSource) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
               setState(() {
@@ -492,8 +490,8 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                                       child: Builder(
                                         builder: (context) {
                                           final list = _getFilteredPresets(appState);
-                                          // Preload thumbnails into cache for use in Select Theme screen
-                                          // Debounced preload: only when the list changes materially
+
+
                                           _debouncedPreloadThumbnails(context, list);
                                           return ListView.builder(
                                             itemCount: list.length,
@@ -726,8 +724,8 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                                       child: Builder(
                                         builder: (context) {
                                           final list = _getFilteredPresets(appState);
-                                          // Preload thumbnails into cache for use in Select Theme screen
-                                          // Debounced preload: only when the list changes materially
+
+
                                           _debouncedPreloadThumbnails(context, list);
                                           return ListView.builder(
                                             itemCount: list.length,
@@ -870,12 +868,12 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
   }
 
   Widget _buildPresetCard(Preset preset, int index, AppState appState) {
-    // build preset card
+
     
     return Container(
       key: ValueKey('${appState.dataSource}-${preset.presetId}'),
       margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.fromLTRB(8, 5, 12, 12), // Exact padding from legacy
+      padding: const EdgeInsets.fromLTRB(8, 5, 12, 12),
       decoration: BoxDecoration(
         color: const Color(0xFF1F2937),
         border: Border.all(color: const Color(0xFF374151)),
@@ -885,19 +883,19 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-          // Left side - Image and browse button (exact dimensions from legacy)
+
           Padding(
-            padding: const EdgeInsets.only(top: 15), // Move thumbnail down by 5 pixels
+            padding: const EdgeInsets.only(top: 15),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-              // Theme thumbnail - made bigger (120x120)
+
               Container(
                 width: 120,
                 height: 120,
                 decoration: BoxDecoration(
-                  color: const Color(0xFF111827), // Exact color from legacy
-                  borderRadius: BorderRadius.circular(6), // Exact radius from legacy
+                  color: const Color(0xFF111827),
+                  borderRadius: BorderRadius.circular(6),
                 ),
                     child: preset.generatedImageUrls.isNotEmpty
                         ? ClipRRect(
@@ -969,7 +967,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                               width: 48,
                               height: 48,
                               decoration: BoxDecoration(
-                                color: const Color(0xFF7C3AED), // PRIMARY color from legacy
+                                color: const Color(0xFF7C3AED),
                                 borderRadius: BorderRadius.circular(6),
                                 border: Border.all(color: const Color(0xFF6B7280), width: 1),
                               ),
@@ -977,11 +975,10 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                           ),
               ),
               
-              const SizedBox(height: 8), // Exact spacing from legacy
-              
-                  // Browse button - moved down 5 pixels
+              const SizedBox(height: 8),
+
                   Padding(
-                    padding: const EdgeInsets.only(top: 6), // Move down by 5 pixels
+                    padding: const EdgeInsets.only(top: 6),
                     child: MouseRegion(
                       cursor: SystemMouseCursors.click,
                     child: GestureDetector(
@@ -990,9 +987,9 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                         width: 70,
                         height: 28,
                         decoration: BoxDecoration(
-                          color: const Color(0xFF080C1B), // Exact color from legacy
+                          color: const Color(0xFF080C1B),
                           border: Border.all(color: const Color(0xFF374151)),
-                          borderRadius: BorderRadius.circular(14), // Exact radius from legacy
+                          borderRadius: BorderRadius.circular(14),
                         ),
                         child: Center(
                           child: Text(
@@ -1012,15 +1009,14 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
           ),
           
           const SizedBox(width: 7),
-          
-          // Right side content
+
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Title row with delete button
+
                 Padding(
-                  padding: const EdgeInsets.only(top: 7), // Move down by 5 pixels
+                  padding: const EdgeInsets.only(top: 7),
                   child: Row(
                     children: [
                       const Text(
@@ -1035,8 +1031,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                     ],
                   ),
                 ),
-                
-                // Title input field - fluid width with max 667, height 33
+
                 Container(
                   width: double.infinity,
                   constraints: const BoxConstraints(maxWidth: 667),
@@ -1049,7 +1044,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                       child: Builder(
                         builder: (context) {
                           final controller = _titleControllerFor(preset);
-                          // If model changed externally, sync when not actively editing
+
                           if (controller.text != preset.title && !controller.selection.isValid) {
                             controller.text = preset.title;
                           }
@@ -1061,11 +1056,11 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                               readOnly: true,
                         style: const TextStyle(
                           color: Colors.white,
-                          fontSize: 14, // Exact font size from legacy
+                          fontSize: 14,
                         ),
                         decoration: const InputDecoration(
                           border: InputBorder.none,
-                          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 6), // Exact padding from legacy
+                          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                           hintText: 'Theme name',
                           hintStyle: TextStyle(
                             color: Color(0xFF6B7280),
@@ -1079,7 +1074,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                 ),
                 
                 const SizedBox(height: 8),
-                // Prompt label
+
                 const Text(
                   'Prompt',
                   style: TextStyle(
@@ -1088,7 +1083,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                // Read-only prompt field (2 lines), copy on double-click (non-focusable)
+
                 GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTapDown: (_) => _escFocusNode.requestFocus(),
@@ -1124,7 +1119,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                     ),
                   ),
                 ),
-                // Credits pill (right-aligned)
+
                 const SizedBox(height: 8),
                 Align(
                   alignment: Alignment.centerRight,
@@ -1167,9 +1162,6 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
   }
 
 
-  // Add new theme functionality removed per requirement
-
-  // Generate random ID like legacy app
   String _generateRandomId(int length) {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
     final random = Random();
@@ -1178,31 +1170,25 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     );
   }
 
-  // Get valid dropdown value to prevent duplicate value errors
   String _getValidDropdownValue(String currentValue, List<Collection> collections) {
-    // Always ensure "Default" exists in the dropdown
+
     final collectionNames = collections.map((c) => c.name).toList();
-    
-    // If current value exists in collections, use it
+
     if (collectionNames.contains(currentValue)) {
       return currentValue;
     }
-    
-    // If "Default" exists, use it
+
     if (collectionNames.contains('Default')) {
       return 'Default';
     }
-    
-    // If no collections exist, return "Default" (it will be added to dropdown)
+
     return 'Default';
   }
 
-  // Build dropdown items with unique values
   List<DropdownMenuItem<String>> _buildDropdownItems(List<Collection> collections) {
     final items = <DropdownMenuItem<String>>[];
-    final addedValues = <String>{}; // Track added values to prevent duplicates
-    
-    // Add "Default" collection if it doesn't exist in collections
+    final addedValues = <String>{};
+
     final collectionNames = collections.map((c) => c.name).toList();
     if (!collectionNames.contains('Default')) {
       items.add(const DropdownMenuItem(
@@ -1211,8 +1197,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
       ));
       addedValues.add('Default');
     }
-    
-    // Add all existing collections (avoid duplicates)
+
     for (final collection in collections) {
       if (!addedValues.contains(collection.name)) {
         items.add(DropdownMenuItem(
@@ -1226,7 +1211,6 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     return items;
   }
 
-  // Collection edit handlers removed (collections are read-only in UI)
 
   void _onBrowseImage(int index, AppState appState) async {
     try {
@@ -1238,8 +1222,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
       if (result != null && result.files.single.path != null) {
         final file = File(result.files.single.path!);
         final presetService = PresetService();
-        
-        // Show loading indicator
+
         showDialog(
           context: context,
           barrierDismissible: false,
@@ -1252,18 +1235,16 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
 
         try {
           await LogService.log('ThumbSelect:start presetIndex=$index file=${file.path}');
-          // Upload image to Firebase Storage
+
           final imageUrl = await presetService.uploadImage(file, appState.presets[index].presetId);
-          
-          // Update preset locally and append in Firebase atomically
+
           final currentPreset = appState.presets[index];
           await LogService.log('ThumbSelect:uploaded url=$imageUrl for presetId=${currentPreset.presetId}');
           final updatedPreset = currentPreset.copyWith(generatedImageUrls: imageUrl);
-          // Local UI will refresh from service callback; no direct AppState update needed
+
           await presetService.appendGeneratedImageUrlToPreset(currentPreset, imageUrl);
           await LogService.log('ThumbSelect:append complete presetId=${currentPreset.presetId}');
-          
-          // Close loading dialog
+
           Navigator.pop(context);
           
           ScaffoldMessenger.of(context).showSnackBar(
@@ -1273,7 +1254,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
             ),
           );
         } catch (e) {
-          // Close loading dialog
+
           Navigator.pop(context);
           
           ScaffoldMessenger.of(context).showSnackBar(
@@ -1295,10 +1276,9 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
   }
 
   void _onStartBooth() async {
-    // Prevent multiple simultaneous navigations
+
     if (_isNavigating) return;
-    
-    // Prevent navigation during rebuild
+
     if (!mounted) return;
     
     setState(() {
@@ -1306,12 +1286,11 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     });
     
     try {
-      // Use a small delay to ensure the widget tree is stable
+
       await Future.delayed(const Duration(milliseconds: 50));
       
       if (!mounted) return;
-      
-    // Navigate directly to Select Theme screen, passing current collection filter (if any)
+
       await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => BoothSelectionScreen(
@@ -1320,7 +1299,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
       ),
     );
     } catch (e) {
-      // Log error but don't show to user unless critical
+
       print('Error navigating to booth selection: $e');
     } finally {
       if (mounted) {
@@ -1331,7 +1310,6 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     }
   }
 
-  /// Build real-time connection indicator
   Widget _buildRealtimeIndicator(AppState appState) {
     final isConnected = appState.isRealtimeListening;
     
@@ -1359,16 +1337,14 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     );
   }
 
-  // Get filtered presets based on selected collection
   List<Preset> _getFilteredPresets(AppState appState) {
-    // filter presets
+
     
     if (_selectedCollectionFilter == null) {
-      // returning all presets
-      return appState.presets; // Show all presets
+
+      return appState.presets;
     }
-    
-    // Debug logging to help identify the issue
+
     print("🔍 Filtering presets by collection: '$_selectedCollectionFilter'");
     print("   Total presets: ${appState.presets.length}");
     print("   Available collections: ${appState.collections.map((c) => c.name).toList()}");
@@ -1385,14 +1361,13 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     return filtered;
   }
 
-  // Build enhanced collection filter dropdown
   Widget _buildCollectionFilter(AppState appState) {
-    // Validate that selected collection exists in current data source
-    // Only reset if collections are loaded and the selected collection is not found
+
+
     if (_selectedCollectionFilter != null && 
         appState.collections.isNotEmpty &&
         !appState.collections.any((c) => c.name == _selectedCollectionFilter)) {
-      // Reset filter if selected collection doesn't exist in current data source
+
       print("🔍 Collection filter validation: '$_selectedCollectionFilter' not found in collections, resetting filter");
       print("   Available collections: ${appState.collections.map((c) => c.name).toList()}");
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1519,17 +1494,14 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     );
   }
 
-  // Build collection filter dropdown items
   List<DropdownMenuItem<String>> _buildCollectionFilterItems(List<Collection> collections) {
     final items = <DropdownMenuItem<String>>[];
-    
-    // Debug logging
+
     print("🔍 Building collection filter items for ${collections.length} collections:");
     for (final collection in collections) {
       print("   - '${collection.name}' (ID: ${collection.id})");
     }
-    
-    // Add "All Collections" option
+
     items.add(const DropdownMenuItem<String>(
       value: null,
       child: SizedBox(
@@ -1546,8 +1518,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
         ),
       )),
     ));
-    
-    // Add each collection
+
     for (final collection in collections) {
       items.add(DropdownMenuItem<String>(
         value: collection.name,
@@ -1570,5 +1541,3 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     return items;
   }
 }
-
-// _PromptText removed; rendering handled inline with SelectionArea.

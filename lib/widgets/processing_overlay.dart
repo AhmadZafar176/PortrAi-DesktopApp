@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// Processing Overlay - Replicates legacy app's WaitingOverlay
-/// Shows full-screen overlay with animation during file processing
+
 class ProcessingOverlay extends StatefulWidget {
   final String message;
   final VoidCallback? onCancel;
@@ -25,8 +24,7 @@ class _ProcessingOverlayState extends State<ProcessingOverlay>
   @override
   void initState() {
     super.initState();
-    
-    // Initialize animations (exactly like legacy app's animation)
+
     _animationController = AnimationController(
       duration: const Duration(milliseconds: 1500),
       vsync: this,
@@ -47,8 +45,7 @@ class _ProcessingOverlayState extends State<ProcessingOverlay>
       parent: _animationController,
       curve: Curves.elasticOut,
     ));
-    
-    // Start animation
+
     _animationController.forward();
   }
 
@@ -65,7 +62,7 @@ class _ProcessingOverlayState extends State<ProcessingOverlay>
       child: Container(
         width: double.infinity,
         height: double.infinity,
-        color: const Color(0xFF0F172A), // Dark background
+        color: const Color(0xFF0F172A),
         child: AnimatedBuilder(
           animation: _animationController,
           builder: (context, child) {
@@ -77,7 +74,7 @@ class _ProcessingOverlayState extends State<ProcessingOverlay>
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      // Spinning loader icon
+
                       ScaleTransition(
                         scale: _scaleAnimation,
                         child: SizedBox(
@@ -86,13 +83,13 @@ class _ProcessingOverlayState extends State<ProcessingOverlay>
                           child: CircularProgressIndicator(
                             strokeWidth: 4,
                             valueColor: const AlwaysStoppedAnimation<Color>(
-                              Color(0xFF7C3AED), // Purple accent color
+                              Color(0xFF7C3AED),
                             ),
                           ),
                         ),
                       ),
                       const SizedBox(height: 24),
-                      // Main title
+
                       Text(
                         widget.message,
                         style: const TextStyle(
@@ -104,7 +101,7 @@ class _ProcessingOverlayState extends State<ProcessingOverlay>
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 12),
-                      // Subtitle
+
                       Text(
                         'Our AI is working its magic. Please wait a moment.',
                         style: TextStyle(
@@ -127,8 +124,7 @@ class _ProcessingOverlayState extends State<ProcessingOverlay>
   }
 }
 
-/// Done Overlay - Replicates legacy app's DoneOverlay
-/// Shows "Done" button after processing is complete
+
 class DoneOverlay extends StatefulWidget {
   final VoidCallback onDone;
 
@@ -150,8 +146,7 @@ class _DoneOverlayState extends State<DoneOverlay>
   @override
   void initState() {
     super.initState();
-    
-    // Initialize animations
+
     _animationController = AnimationController(
       duration: const Duration(milliseconds: 300),
       vsync: this,
@@ -172,8 +167,7 @@ class _DoneOverlayState extends State<DoneOverlay>
       parent: _animationController,
       curve: Curves.easeOut,
     ));
-    
-    // Start animation
+
     _animationController.forward();
   }
 
@@ -217,13 +211,11 @@ class _DoneOverlayState extends State<DoneOverlay>
   }
 }
 
-/// Global overlay manager for processing states
 class OverlayManager {
   static OverlayEntry? _currentOverlay;
-  
-  /// Show processing overlay
+
   static void showProcessing(BuildContext context, String message) {
-    hideOverlay(); // Hide any existing overlay
+    hideOverlay();
     
     _currentOverlay = OverlayEntry(
       builder: (context) => ProcessingOverlay(message: message),
@@ -231,10 +223,9 @@ class OverlayManager {
     
     Overlay.of(context).insert(_currentOverlay!);
   }
-  
-  /// Show done overlay
+
   static void showDone(BuildContext context, VoidCallback onDone) {
-    hideOverlay(); // Hide any existing overlay
+    hideOverlay();
     
     _currentOverlay = OverlayEntry(
       builder: (context) => DoneOverlay(onDone: onDone),
@@ -242,8 +233,7 @@ class OverlayManager {
     
     Overlay.of(context).insert(_currentOverlay!);
   }
-  
-  /// Hide current overlay
+
   static void hideOverlay() {
     _currentOverlay?.remove();
     _currentOverlay = null;

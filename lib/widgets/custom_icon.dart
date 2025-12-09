@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-/// Custom icon widget that ensures proper icon rendering
 class CustomIcon extends StatelessWidget {
   final IconData icon;
   final double size;
@@ -19,7 +18,7 @@ class CustomIcon extends StatelessWidget {
       icon,
       size: size,
       color: color,
-      // Explicitly set the font family to ensure proper rendering
+
       textDirection: TextDirection.ltr,
     );
   }

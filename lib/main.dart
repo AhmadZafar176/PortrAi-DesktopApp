@@ -20,7 +20,6 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await LogService.init();
   runZonedGuarded(() async {
-    // Restrict app usage to Windows only
     if (!Platform.isWindows) {
       runApp(const MaterialApp(
         debugShowCheckedModeBanner: false,
@@ -36,17 +35,14 @@ void main() async {
       return;
     }
 
-    // Log all arguments for diagnostics
     final allArgs = await _getAllArgs();
     await LogService.log('Startup args: $allArgs');
 
-    // Done button micro-app mode
     if (allArgs.contains('--done-button')) {
       runApp(const DoneButtonApp());
       return;
     }
 
-    // If launched with files (drag-and-drop), run worker overlay app
     final droppedFiles = await _getCommandLineFiles();
     if (droppedFiles.isNotEmpty) {
       await LogService.log('WorkerOverlay: files: $droppedFiles');
@@ -54,10 +50,8 @@ void main() async {
       return;
     }
 
-    // GUI path: initialize window and enter fullscreen immediately
     await windowManager.ensureInitialized();
 
-    // Ensure frameless fullscreen from the first paint to avoid flicker
     await windowManager.setTitleBarStyle(TitleBarStyle.hidden);
     await windowManager.setFullScreen(true);
 
@@ -109,8 +103,7 @@ String _stripQuotes(String s) {
 
 Future<List<String>> _getAllArgs() async {
   final result = <String>[];
-  try {
-    // Read args persisted by the Windows runner
+      try {
     final appData = Platform.environment['APPDATA'];
     final baseDir = appData != null && appData.isNotEmpty
         ? appData
@@ -127,7 +120,6 @@ Future<List<String>> _getAllArgs() async {
   return result;
 }
 
-/// Check if file is a valid image (exactly like legacy app's filter_images)
 bool _isImageFile(String filePath) {
   final extension = filePath.toLowerCase().split('.').last;
   return ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'].contains(extension);
@@ -151,17 +143,15 @@ class _PortraiAppState extends State<PortraiApp> {
     _startEventServer();
   }
 
-  /// Start IPC server to receive files from other instances
   void _startIPCServer() async {
     final success = await _ipcService.startServer((requestId, filePaths) {
       _processFilesInContext(filePaths, requestId);
     });
 
     if (success) {
-      // Also process any files from command line
       final commandLineFiles = await _getCommandLineFiles();
       if (commandLineFiles.isNotEmpty) {
-        _processFilesInContext(commandLineFiles, ''); // No requestId for command line files
+        _processFilesInContext(commandLineFiles, '');
       }
     }
   }
@@ -175,10 +165,7 @@ class _PortraiAppState extends State<PortraiApp> {
     }
   }
 
-  /// Process files in context (needs BuildContext for Provider access)
   void _processFilesInContext(List<String> filePaths, String requestId) {
-    // We need a BuildContext to access Provider
-    // This will be called after the app is built
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         FileProcessingService.processFiles(filePaths, context, requestId);
@@ -210,7 +197,6 @@ class _PortraiAppState extends State<PortraiApp> {
             debugShowCheckedModeBanner: false,
             builder: (context, child) {
               final mq = MediaQuery.of(context);
-              // Clamp global text scale to prevent overflow on scaled desktops (e.g., 125%, 150%).
               return MediaQuery(
                 data: mq.copyWith(
                   textScaler: const TextScaler.linear(1.0),

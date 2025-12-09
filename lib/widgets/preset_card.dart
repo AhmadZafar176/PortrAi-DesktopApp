@@ -24,7 +24,7 @@ class PresetCard extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         child: Row(
           children: [
-            // Thumbnail
+
             Container(
               width: 80,
               height: 60,
@@ -59,8 +59,7 @@ class PresetCard extends StatelessWidget {
             ),
             
             const SizedBox(width: 16),
-            
-            // Preset details
+
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -96,8 +95,7 @@ class PresetCard extends StatelessWidget {
                 ],
               ),
             ),
-            
-            // Action buttons
+
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [

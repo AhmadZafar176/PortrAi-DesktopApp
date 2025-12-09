@@ -17,7 +17,6 @@ class User {
     this.creationTime,
   });
 
-  // Factory constructor from Map (for Firebase)
   factory User.fromMap(Map<String, dynamic> map) {
     return User(
       uid: map['uid'] ?? "",
@@ -34,7 +33,6 @@ class User {
     );
   }
 
-  // Convert to Map (for Firebase)
   Map<String, dynamic> toMap() {
     return {
       'uid': uid,
@@ -47,7 +45,6 @@ class User {
     };
   }
 
-  // Copy with method for updates
   User copyWith({
     String? uid,
     String? email,

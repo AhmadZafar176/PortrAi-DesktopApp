@@ -15,7 +15,7 @@ class ChevronWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return CustomPaint(
-      size: Size(size, size * 0.67), // Maintain aspect ratio
+      size: Size(size, size * 0.67),
       painter: ChevronPainter(
         isUpward: isUpward,
         color: color,
@@ -44,16 +44,16 @@ class ChevronPainter extends CustomPainter {
     final path = Path();
     
     if (isUpward) {
-      // Draw upward chevron (^)
-      path.moveTo(size.width / 2, 0); // Top point
-      path.lineTo(0, size.height); // Bottom left
-      path.lineTo(size.width, size.height); // Bottom right
+
+      path.moveTo(size.width / 2, 0);
+      path.lineTo(0, size.height);
+      path.lineTo(size.width, size.height);
       path.close();
     } else {
-      // Draw downward chevron (v)
-      path.moveTo(0, 0); // Top left
-      path.lineTo(size.width, 0); // Top right
-      path.lineTo(size.width / 2, size.height); // Bottom point
+
+      path.moveTo(0, 0);
+      path.lineTo(size.width, 0);
+      path.lineTo(size.width / 2, size.height);
       path.close();
     }
 
