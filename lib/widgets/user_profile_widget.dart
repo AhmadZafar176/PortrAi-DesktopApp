@@ -21,19 +21,36 @@ class _UserProfileWidgetState extends State<UserProfileWidget> {
           return const SizedBox.shrink();
         }
 
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
+        return GestureDetector(
+          // Close menu when tapping outside (this will catch taps outside the Column)
+          onTap: () {
+            if (_isMenuOpen) {
+              setState(() {
+                _isMenuOpen = false;
+              });
+            }
+          },
+          behavior: HitTestBehavior.translucent,
+          child: GestureDetector(
+            // Stop propagation for taps inside the menu/button area
+            onTap: () {
+              // Do nothing - this prevents the outer GestureDetector from firing
+            },
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
 
-            AnimatedSize(
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeInOut,
-              child: _isMenuOpen ? _buildSlideOutMenu(appState) : const SizedBox.shrink(),
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeInOut,
+                  child: _isMenuOpen ? _buildSlideOutMenu(appState) : const SizedBox.shrink(),
+                ),
+
+                _buildEnhancedProfileButton(appState),
+              ],
             ),
-
-            _buildEnhancedProfileButton(appState),
-          ],
+          ),
         );
       },
     );

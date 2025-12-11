@@ -52,7 +52,7 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
   static const int maxDuration = 800;
   static const int snapDuration = 300;
   static const int snapDurationLandscape = 300;
-  static const int snapIdle = 150;
+  static const int snapIdle = 100;
   static const double snapHysteresis = 0.30;
 
   bool _isUserScrolling = false;
@@ -71,6 +71,7 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
 
   double _cardWidth = baseWidth;
   double _cardHeight = baseHeight;
+  double _scrollStep = 0.0;
   bool _hasPostDeliveryPreset = false;
 
   @override
@@ -127,6 +128,8 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
       _cardWidth = math.max(minWidth, calculatedWidth);
       _cardHeight = _cardWidth;
     }
+    
+    _scrollStep = _cardWidth + _getGap();
     
     setState(() {});
   }
@@ -190,7 +193,7 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
     final orientation = MediaQuery.of(context).orientation;
     if (_scrollController.hasClients && _currentPresets.isNotEmpty) {
       final vpw = MediaQuery.of(context).size.width;
-      final step = _cardWidth + _getGap();
+      final step = _scrollStep;
       
       final itemCount = _currentPresets.length;
       if (orientation == Orientation.portrait) {
@@ -227,7 +230,7 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
     _coalesceTimer?.cancel();
     _coalesceTimer = Timer(const Duration(milliseconds: snapIdle), () {
       _isUserScrolling = false;
-      _snapToCard(hysteresis: true);
+      _snapToCardSmooth();
     });
   }
 
@@ -249,7 +252,7 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
     
     final orientation = MediaQuery.of(context).orientation;
     final vpw = MediaQuery.of(context).size.width;
-    final step = _cardWidth + _getGap();
+    final step = _scrollStep;
     
     final itemCount = _currentPresets.length;
     if (orientation == Orientation.portrait) {
@@ -314,6 +317,71 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
     }
   }
 
+  void _snapToCardSmooth() {
+    if (!_scrollController.hasClients) return;
+    
+    final orientation = MediaQuery.of(context).orientation;
+    final vpw = MediaQuery.of(context).size.width;
+    final step = _scrollStep;
+    final horizontalPadding = (vpw - _cardWidth) / 2.0;
+    
+    final itemCount = _currentPresets.length;
+    int targetIdx;
+    
+    if (orientation == Orientation.portrait) {
+      final center = _scrollController.offset + vpw / 2.0;
+      final cardCenterOffset = horizontalPadding + _cardWidth / 2.0;
+      final relativeOffset = center - cardCenterOffset;
+      final idxFloat = relativeOffset / step;
+      targetIdx = math.max(0, math.min(itemCount - 1, idxFloat.round()));
+    } else {
+      final screenCenter = _scrollController.offset + vpw / 2.0;
+      final relativeCenter = screenCenter - horizontalPadding;
+      final idxFloat = (relativeCenter - _cardWidth / 2.0) / step;
+      
+      final idxFloor = idxFloat.floor();
+      final frac = idxFloat - idxFloor;
+      if (frac > (1.0 - snapHysteresis)) {
+        targetIdx = idxFloor + 1;
+      } else if (frac < snapHysteresis) {
+        targetIdx = idxFloor;
+      } else {
+        targetIdx = idxFloat.round();
+      }
+      targetIdx = math.max(0, math.min(itemCount - 1, targetIdx));
+    }
+    
+    if (targetIdx != _selectedIndex) {
+      setState(() {
+        _selectedIndex = targetIdx;
+      });
+    }
+    
+    final target = horizontalPadding + targetIdx * step + _cardWidth / 2.0 - vpw / 2.0;
+    final clampedTarget = math.max(
+      0.0,
+      math.min(_scrollController.position.maxScrollExtent, target),
+    );
+    
+    final currentOffset = _scrollController.offset;
+    final distance = (clampedTarget - currentOffset).abs();
+    
+    if (distance < 0.5) return;
+    
+    final normalized = math.min(1.0, distance / 1200.0);
+    final eased = math.pow(normalized, 0.5) as double;
+    
+    final baseDuration = math.max(150, math.min(400, (distance / 3.0).round()));
+    final duration = (baseDuration + (maxDuration - baseDuration) * eased).toInt();
+    final actualDuration = math.max(150, math.min(maxDuration, duration));
+    
+    _scrollController.animateTo(
+      clampedTarget,
+      duration: Duration(milliseconds: actualDuration),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
   void _animateTo(double target, {int? duration}) {
     if (!_scrollController.hasClients) return;
     
@@ -346,20 +414,38 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
   void _scrollBy(int steps) {
     if (!_scrollController.hasClients) return;
     
-    final step = baseWidth + _getGap();
-    final target = math.max(
-      0.0,
+    final orientation = MediaQuery.of(context).orientation;
+    final vpw = MediaQuery.of(context).size.width;
+    final horizontalPadding = (vpw - _cardWidth) / 2.0;
+    
+    final newCardIndex = math.max(
+      0,
       math.min(
-        _scrollController.position.maxScrollExtent,
-        _scrollController.offset + steps * step,
+        _currentPresets.length - 1,
+        _selectedIndex + steps,
       ),
     );
     
-    _animateTo(target);
+    final target = horizontalPadding + newCardIndex * _scrollStep + _cardWidth / 2.0 - vpw / 2.0;
+    final clampedTarget = math.max(
+      0.0,
+      math.min(
+        _scrollController.position.maxScrollExtent,
+        target,
+      ),
+    );
+    
+    if (newCardIndex != _selectedIndex) {
+      setState(() {
+        _selectedIndex = newCardIndex;
+      });
+    }
+    
+    _animateTo(clampedTarget);
 
     _coalesceTimer?.cancel();
     _coalesceTimer = Timer(const Duration(milliseconds: snapIdle), () {
-      _snapToCard(hysteresis: true);
+      _snapToCardSmooth();
     });
   }
 
@@ -403,7 +489,6 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
     await SessionService.clearDonePressed();
 
     if (Platform.isWindows) {
-
       if (_minimizing) return;
       _minimizing = true;
       try {
@@ -416,9 +501,7 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
         }
         await windowManager.minimize();
       } catch (_) {
-
       } finally {
-
         _minimizing = false;
       }
     }
@@ -434,7 +517,6 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
         timer.cancel();
         await SessionService.clearWorkerDone();
         if (mounted) {
-
           _startDonePressedPolling(appState);
         }
       }
@@ -479,7 +561,6 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
   }
 
   void _handleEscKey() async {
-
     Navigator.of(context).pop();
   }
 
@@ -492,7 +573,6 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
     return KeyboardListener(
       focusNode: _focusNode,
       onKeyEvent: (KeyEvent event) {
-
         if (event is KeyDownEvent) {
           if (event.logicalKey == LogicalKeyboardKey.escape) {
             _handleEscKey();
@@ -529,7 +609,6 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
                     !isPortrait && viewport.maxWidth >= _baseWidth && viewport.maxHeight >= effectiveBaseHeight;
 
                 Widget contentBuilder() {
-
                   return LayoutBuilder(
                     builder: (context, constraints) {
                       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -547,7 +626,6 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
                                     padding: EdgeInsets.only(top: isPortrait ? 282.0 : 32.0),
                                     child: Column(
                                       children: [
-
                                         if (_currentPresets.isNotEmpty && isPortrait) ...[
                                           _buildTakePictureButton(),
                                           const SizedBox(height: 16),
@@ -573,7 +651,6 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
                                   Expanded(
                                     child: LayoutBuilder(
                                       builder: (context, constraints) {
-
                                         final double arrowTop = constraints.maxHeight / 2 - 22.0 - 10.0;
                                         return Stack(
                                           clipBehavior: Clip.none,
@@ -666,7 +743,6 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
   }
 
   Widget _buildEmptyState() {
-
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _focusNode.requestFocus();
     });
@@ -786,7 +862,6 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-
             AnimatedContainer(
               duration: const Duration(milliseconds: 150),
               width: _cardWidth,
@@ -821,7 +896,6 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
                     ? Image(
                         image: (() {
                           final dpr = MediaQuery.of(context).devicePixelRatio;
-
                           return ThumbnailCacheService.instance.providerForResized(
                             preset.generatedImageUrls,
                             cacheWidth: (_cardWidth * dpr).round(),
@@ -833,7 +907,6 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
                         errorBuilder: (context, error, stackTrace) {
                           return _buildPlaceholderImage();
                         },
-
                       )
                     : _buildPlaceholderImage(),
               ),
@@ -977,3 +1050,6 @@ class _HoverableArrowButtonState extends State<_HoverableArrowButton> {
     );
   }
 }
+
+
+

@@ -40,6 +40,15 @@ class FileProcessingService {
     BuildContext context,
     String? externalRequestId,
   ) async {
+    // Null safety check
+    if (filePaths.isEmpty) {
+      print('⚠️ No files provided for processing');
+      if (externalRequestId != null) {
+        await IPCService.signalCompletion(externalRequestId);
+      }
+      return;
+    }
+    
     if (_isProcessing) {
       print('⚠️ Already processing files, ignoring new request');
       if (externalRequestId != null) {
@@ -59,6 +68,7 @@ class FileProcessingService {
 
     final appState = Provider.of<AppState>(context, listen: false);
 
+    // Null safety checks
     if (appState.presets.isEmpty) {
       _showErrorDialog(context, "Please add a preset first.");
       await maybeSignalCompletion();
@@ -67,6 +77,14 @@ class FileProcessingService {
 
     if (appState.selectedIndex < 0 || appState.selectedIndex >= appState.presets.length) {
       _showErrorDialog(context, "Select a theme first.");
+      await maybeSignalCompletion();
+      return;
+    }
+    
+    // Additional null safety check
+    final selectedPreset = appState.presets[appState.selectedIndex];
+    if (selectedPreset.presetId.isEmpty) {
+      _showErrorDialog(context, "Invalid preset selected.");
       await maybeSignalCompletion();
       return;
     }

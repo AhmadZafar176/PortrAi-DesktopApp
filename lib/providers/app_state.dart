@@ -37,10 +37,13 @@ class AppState extends ChangeNotifier {
     print('AppState:initialize');
     _presetService.setDataChangedCallback(handleRealtimeUpdate);
     
-    _authService.userStream.listen((user) {
+    _authService.userStream.listen((user) async {
       _currentUser = user;
       if (user != null) {
         print('AppState:user signed in ${user.uid}');
+        // Add a small delay to ensure Firebase Auth token is fully propagated
+        // This helps prevent internal server errors when accessing Firestore for new users
+        await Future.delayed(const Duration(milliseconds: 500));
         _loadUserData();
         _loadUserSettings();
       } else {
@@ -59,8 +62,11 @@ class AppState extends ChangeNotifier {
     _setLoading(true);
     try {
       await _presetService.initialize();
+      // Refresh data after initialization to ensure latest data is loaded
       _presets = _presetService.getPresetsForDataSource(_dataSource);
       _collections = _presetService.getCollectionsForDataSource(_dataSource);
+      print("✅ AppState: Loaded ${_presets.length} presets and ${_collections.length} collections for data source '$_dataSource'");
+      notifyListeners(); // Ensure UI updates with new data
     } catch (e) {
       debugPrint('Error loading user data: $e');
     } finally {
@@ -75,13 +81,30 @@ class AppState extends ChangeNotifier {
           .collection('users')
           .doc(_currentUser!.uid)
           .get();
+      
+      // If user document doesn't exist, that's fine - user is new
+      if (!doc.exists) {
+        print("📁 User document doesn't exist yet - this is normal for new users");
+        _presetPassword = '';
+        return;
+      }
+      
       final data = doc.data();
       if (data != null) {
         _presetPassword = (data['presetPassword'] ?? '') as String;
         notifyListeners();
       }
     } catch (e) {
-      debugPrint('Error loading user settings: $e');
+      final errorString = e.toString().toLowerCase();
+      if (errorString.contains('permission-denied') || 
+          errorString.contains('missing or insufficient permissions')) {
+        debugPrint('⚠️ Permission denied loading user settings - user may not be fully authenticated yet');
+      } else if (errorString.contains('internal') || 
+                 errorString.contains('server error')) {
+        debugPrint('⚠️ Internal server error loading user settings - user document may not exist yet (normal for new users)');
+      } else {
+        debugPrint('Error loading user settings: $e');
+      }
     }
   }
 
@@ -205,6 +228,8 @@ class AppState extends ChangeNotifier {
       _currentUser = null;
       _presets.clear();
       _collections.clear();
+      // Reset PresetService user state so next sign-in is properly detected
+      _presetService.resetUserState();
       notifyListeners();
     } catch (e) {
       debugPrint('Error signing out: $e');

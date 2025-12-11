@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:window_manager/window_manager.dart';
+import 'dart:io';
 import '../providers/app_state.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -13,6 +16,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _escFocusNode = FocusNode();
   bool _isLoading = false;
   String? _errorMessage;
 
@@ -20,14 +24,32 @@ class _LoginScreenState extends State<LoginScreen> {
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
+    _escFocusNode.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF0B1120),
-      body: Center(
+    return RawKeyboardListener(
+      autofocus: true,
+      focusNode: _escFocusNode,
+      onKey: (event) async {
+        if (event.isKeyPressed(LogicalKeyboardKey.escape)) {
+          if (!_isLoading) {
+            final shouldExit = await _confirmExitDialog();
+            if (shouldExit) {
+              if (Platform.isWindows) {
+                await windowManager.close();
+              } else {
+                Navigator.of(context).maybePop();
+              }
+            }
+          }
+        }
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFF0B1120),
+        body: Center(
         child: SingleChildScrollView(
           child: Container(
             width: 450,
@@ -278,7 +300,36 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ),
       ),
+      ),
     );
+  }
+
+  Future<bool> _confirmExitDialog() async {
+    return await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFF1F2937),
+              title: const Text('Exit App?', style: TextStyle(color: Colors.white)),
+              content: const Text(
+                'Are you sure you want to exit?',
+                style: TextStyle(color: Color(0xFF9CA3AF)),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(false),
+                  child: const Text('Cancel', style: TextStyle(color: Color(0xFF9CA3AF))),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(true),
+                  child: const Text('Yes', style: TextStyle(color: Color(0xFFCC66FF))),
+                ),
+              ],
+            );
+          },
+        ) ??
+        false;
   }
 
   Future<void> _signIn() async {
@@ -295,6 +346,9 @@ class _LoginScreenState extends State<LoginScreen> {
         _emailController.text.trim(),
         _passwordController.text,
       );
+
+      // Bring app window to foreground after successful login
+      await _bringAppToForeground();
 
     } catch (e) {
       setState(() {
@@ -321,20 +375,55 @@ class _LoginScreenState extends State<LoginScreen> {
       await appState.signInWithGoogle();
       print('🔍 Google Sign-In completed successfully!');
 
-        } catch (e) {
-          print('🔍 Google Sign-In error: $e');
-          setState(() {
-            String errorMsg = e.toString().replaceFirst('Exception: ', '');
-            if (errorMsg.contains('People API has not been used')) {
-              _errorMessage = 'Google Sign-In requires People API to be enabled. Please enable it in Google Cloud Console and try again.';
-            } else {
-              _errorMessage = errorMsg;
-            }
-          });
-        } finally {
+      // Bring app window to foreground after successful login
+      // The Google account picker might have put the app in the background
+      await _bringAppToForeground();
+
+    } catch (e) {
+      print('🔍 Google Sign-In error: $e');
+      setState(() {
+        String errorMsg = e.toString().replaceFirst('Exception: ', '');
+        if (errorMsg.contains('People API has not been used')) {
+          _errorMessage = 'Google Sign-In requires People API to be enabled. Please enable it in Google Cloud Console and try again.';
+        } else {
+          _errorMessage = errorMsg;
+        }
+      });
+    } finally {
       setState(() {
         _isLoading = false;
       });
+    }
+  }
+
+  Future<void> _bringAppToForeground() async {
+    if (!Platform.isWindows) return;
+    
+    try {
+      print('🔍 Bringing app window to foreground...');
+      
+      // Temporarily set always on top to ensure window comes forward
+      await windowManager.setAlwaysOnTop(true);
+      
+      // Restore window if minimized
+      await windowManager.restore();
+      
+      // Show and focus the window
+      await windowManager.show();
+      await Future.delayed(const Duration(milliseconds: 50));
+      await windowManager.focus();
+      
+      // Ensure fullscreen is set
+      await windowManager.setFullScreen(true);
+      
+      // Reset always on top after bringing to foreground
+      await Future.delayed(const Duration(milliseconds: 100));
+      await windowManager.setAlwaysOnTop(false);
+      
+      print('🔍 App window brought to foreground successfully');
+    } catch (e) {
+      print('🔍 Error bringing app to foreground: $e');
+      // Don't throw - this is a nice-to-have feature
     }
   }
 }

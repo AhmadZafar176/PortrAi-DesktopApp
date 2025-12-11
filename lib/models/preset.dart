@@ -24,7 +24,7 @@ class Preset {
     this.collectionId = "",
     this.presetId = "",
     this.title = "",
-    this.generatedImageUrls = "https:
+    this.generatedImageUrls = "",
     this.postProcessingUrl = "",
     this.createdAt = "",
     this.url = "",
@@ -68,7 +68,7 @@ class Preset {
   }
 
   static String _parseImageUrls(dynamic value) {
-    const defaultUrl = "https:
+    const defaultUrl = "";
     
     assert(() {
       print("🖼️ _parseImageUrls received: $value (type: ${value.runtimeType})");

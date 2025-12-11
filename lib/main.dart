@@ -50,6 +50,14 @@ void main() async {
       return;
     }
 
+    // Enforce single instance: Check if IPC server can start
+    // If not, another instance is running - forward any command-line files and exit
+    if (!await _enforceSingleInstance(droppedFiles)) {
+      await LogService.log('Another instance detected, exiting...');
+      exit(0);
+      return;
+    }
+
     await windowManager.ensureInitialized();
 
     await windowManager.setTitleBarStyle(TitleBarStyle.hidden);
@@ -125,6 +133,45 @@ bool _isImageFile(String filePath) {
   return ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'].contains(extension);
 }
 
+/// Enforces single instance by checking if IPC server can bind to port.
+/// Returns true if this is the first instance (server started successfully).
+/// Returns false if another instance is running (server failed to start).
+/// If another instance exists, attempts to forward files to it.
+Future<bool> _enforceSingleInstance(List<String> files) async {
+  try {
+    // Try to bind to the IPC port
+    final testSocket = await ServerSocket.bind(InternetAddress.loopbackIPv4, 45678);
+    // If successful, close it immediately (we'll start it properly in PortraiApp)
+    await testSocket.close();
+    print('✅ Single instance check passed - this is the first instance');
+    return true;
+  } catch (e) {
+    // Port is already in use - another instance is running
+    print('⚠️ Another instance detected (port 45678 already in use)');
+    
+    // If there are files to process, forward them to the existing instance
+    if (files.isNotEmpty) {
+      print('📤 Forwarding ${files.length} file(s) to existing instance...');
+      try {
+        final requestId = await IPCService.sendFilesToExistingInstance(files);
+        if (requestId != null) {
+          print('✅ Files forwarded successfully (request: $requestId)');
+          // Wait a moment for the request to be acknowledged
+          await Future.delayed(const Duration(milliseconds: 500));
+        } else {
+          print('⚠️ Failed to forward files to existing instance');
+        }
+      } catch (e) {
+        print('❌ Error forwarding files: $e');
+      }
+    } else {
+      print('ℹ️ No files to forward');
+    }
+    
+    return false; // Another instance exists
+  }
+}
+
 class PortraiApp extends StatefulWidget {
   const PortraiApp({super.key});
 
@@ -149,10 +196,15 @@ class _PortraiAppState extends State<PortraiApp> {
     });
 
     if (success) {
+      // Process any command-line files that weren't already forwarded
       final commandLineFiles = await _getCommandLineFiles();
       if (commandLineFiles.isNotEmpty) {
         _processFilesInContext(commandLineFiles, '');
       }
+    } else {
+      // This should never happen if _enforceSingleInstance() worked correctly
+      // But if it does, log it and continue (don't exit here as app is already running)
+      await LogService.log('⚠️ IPC Server failed to start in PortraiApp (unexpected)');
     }
   }
 
