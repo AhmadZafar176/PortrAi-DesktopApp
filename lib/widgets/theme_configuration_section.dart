@@ -125,7 +125,7 @@ class ThemeConfigurationSection extends StatelessWidget {
                     final preset = appState.presets[index];
                     return PresetCard(
                       preset: preset,
-                      onEdit: () => _editPreset(context, preset),
+                      onEdit: () {},
                     );
                   },
                 );
@@ -160,10 +160,6 @@ class ThemeConfigurationSection extends StatelessWidget {
   }
 
 
-  void _editPreset(BuildContext context, preset) {
-
-    debugPrint('Edit preset: ${preset.title}');
-  }
 
 }
 

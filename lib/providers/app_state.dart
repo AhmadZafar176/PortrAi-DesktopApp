@@ -18,7 +18,6 @@ class AppState extends ChangeNotifier {
   app_user.User? _currentUser;
   List<Preset> _presets = [];
   List<Collection> _collections = [];
-  bool _isDarkMode = false;
   bool _noEffectsEnabled = false;
   String _dataSource = "live";
   bool _isLoading = false;
@@ -29,7 +28,6 @@ class AppState extends ChangeNotifier {
   app_user.User? get currentUser => _currentUser;
   List<Preset> get presets => _presets;
   List<Collection> get collections => _collections;
-  bool get isDarkMode => _isDarkMode;
   bool get noEffectsEnabled => _noEffectsEnabled;
   String get dataSource => _dataSource;
   bool get isLoading => _isLoading;
@@ -122,11 +120,6 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  void toggleDarkMode() {
-    _isDarkMode = !_isDarkMode;
-    notifyListeners();
-  }
-
   void toggleNoEffects() {
     _noEffectsEnabled = !_noEffectsEnabled;
     notifyListeners();
@@ -170,53 +163,6 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> addCollection(Collection collection) async {
-    try {
-      final collectionId = _generateRandomId(8);
-      
-      await _presetService.createCollectionInFirebase(collection.name, collectionId);
-      
-      _collections.add(collection);
-      
-      await _presetService.initialize();
-      _collections = _presetService.getCollectionsForDataSource(_dataSource);
-      
-      notifyListeners();
-    } catch (e) {
-      debugPrint('Error adding collection: $e');
-    }
-  }
-
-  String _generateRandomId(int length) {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    final random = Random();
-    return String.fromCharCodes(
-      Iterable.generate(length, (_) => chars.codeUnitAt(random.nextInt(chars.length))),
-    );
-  }
-
-  Future<void> updateCollection(Collection collection) async {
-    try {
-      await _authService.saveCollection(collection);
-      final index = _collections.indexWhere((c) => c.name == collection.name);
-      if (index != -1) {
-        _collections[index] = collection;
-        notifyListeners();
-      }
-    } catch (e) {
-      debugPrint('Error updating collection: $e');
-    }
-  }
-
-  Future<void> deleteCollection(String collectionName) async {
-    try {
-      await _authService.deleteCollection(collectionName);
-      _collections.removeWhere((c) => c.name == collectionName);
-      notifyListeners();
-    } catch (e) {
-      debugPrint('Error deleting collection: $e');
-    }
-  }
 
   Future<void> signInWithEmailAndPassword(String email, String password) async {
     try {
@@ -250,9 +196,6 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  void navigateToSavedPresets() {
-    debugPrint('Navigate to saved presets');
-  }
 
   void _setLoading(bool loading) {
     _isLoading = loading;

@@ -21,8 +21,6 @@ class TestApp extends StatelessWidget {
           return MaterialApp(
             title: 'PortrAI - Test App',
             theme: AppTheme.lightTheme,
-            darkTheme: AppTheme.darkTheme,
-            themeMode: appState.isDarkMode ? ThemeMode.dark : ThemeMode.light,
             home: const TestHomeScreen(),
             debugShowCheckedModeBanner: false,
           );

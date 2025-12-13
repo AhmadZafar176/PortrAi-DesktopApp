@@ -510,35 +510,4 @@ class AuthService {
     }
   }
 
-  Future<void> saveCollection(Collection collection) async {
-    try {
-      final user = _auth.currentUser;
-      if (user == null) throw Exception('User not authenticated');
-
-      await _firestore
-          .collection('users')
-          .doc(user.uid)
-          .collection('collections')
-          .doc(collection.name)
-          .set(collection.toMap());
-    } catch (e) {
-      throw Exception('Failed to save collection: $e');
-    }
-  }
-
-  Future<void> deleteCollection(String collectionName) async {
-    try {
-      final user = _auth.currentUser;
-      if (user == null) throw Exception('User not authenticated');
-
-      await _firestore
-          .collection('users')
-          .doc(user.uid)
-          .collection('collections')
-          .doc(collectionName)
-          .delete();
-    } catch (e) {
-      throw Exception('Failed to delete collection: $e');
-    }
-  }
 }

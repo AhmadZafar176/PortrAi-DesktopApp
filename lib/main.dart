@@ -241,8 +241,6 @@ class _PortraiAppState extends State<PortraiApp> {
           return MaterialApp(
             title: 'PortrAI - Photobooth Setup',
             theme: AppTheme.lightTheme,
-            darkTheme: AppTheme.darkTheme,
-            themeMode: appState.isDarkMode ? ThemeMode.dark : ThemeMode.light,
             home: appState.currentUser != null 
                 ? MainScreen() 
                 : LoginScreen(),
