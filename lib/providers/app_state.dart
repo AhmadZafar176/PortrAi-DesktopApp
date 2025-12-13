@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:math';
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/user.dart' as app_user;
 import '../models/preset.dart';
@@ -11,6 +12,8 @@ import '../services/session_service.dart';
 class AppState extends ChangeNotifier {
   final AuthService _authService = AuthService();
   final PresetService _presetService = PresetService();
+  
+  StreamSubscription<app_user.User?>? _userStreamSubscription;
   
   app_user.User? _currentUser;
   List<Preset> _presets = [];
@@ -38,7 +41,8 @@ class AppState extends ChangeNotifier {
     print('AppState:initialize');
     _presetService.setDataChangedCallback(handleRealtimeUpdate);
     
-    _authService.userStream.listen((user) async {
+    _userStreamSubscription?.cancel();
+    _userStreamSubscription = _authService.userStream.listen((user) async {
       _currentUser = user;
       if (user != null) {
         print('AppState:user signed in ${user.uid}');
@@ -57,6 +61,13 @@ class AppState extends ChangeNotifier {
       }
       notifyListeners();
     });
+  }
+  
+  @override
+  void dispose() {
+    _userStreamSubscription?.cancel();
+    _userStreamSubscription = null;
+    super.dispose();
   }
 
   Future<void> _loadUserData() async {

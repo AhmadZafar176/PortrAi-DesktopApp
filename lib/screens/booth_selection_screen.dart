@@ -468,11 +468,14 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
   }
 
   void _onTakePicture(BuildContext context) async {
+    if (!mounted) return;
+    
     final appState = Provider.of<AppState>(context, listen: false);
     if (_currentPresets.isEmpty) {
       return;
     }
 
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Photo booth mode activated! Waiting for images...'),
@@ -485,21 +488,31 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
 
     final preset = _currentPresets[_selectedIndex];
     await SessionService.saveSelectedPreset(preset, presetPassword: appState.presetPassword);
+    if (!mounted) return;
 
     await SessionService.clearWorkerDone();
+    if (!mounted) return;
+    
     await SessionService.clearDonePressed();
+    if (!mounted) return;
 
     if (Platform.isWindows) {
       if (_minimizing) return;
       _minimizing = true;
       try {
+        if (!mounted) return;
         await windowManager.setOpacity(0.0);
+        if (!mounted) return;
         await Future.delayed(const Duration(milliseconds: 16));
+        if (!mounted) return;
         final isFS = await windowManager.isFullScreen();
+        if (!mounted) return;
         if (isFS) {
           await windowManager.setFullScreen(false);
+          if (!mounted) return;
           await Future.delayed(const Duration(milliseconds: 16));
         }
+        if (!mounted) return;
         await windowManager.minimize();
       } catch (_) {
       } finally {

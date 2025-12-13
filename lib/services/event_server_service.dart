@@ -23,6 +23,7 @@ class EventServerService {
   }
 
   Future<void> _handleRequest(HttpRequest req) async {
+    bool responseClosed = false;
     try {
       final qp = req.uri.queryParameters;
       final eventType = qp['event_type'] ?? '';
@@ -33,24 +34,52 @@ class EventServerService {
       final logParts = <String>["event_type: '$eventType'"];
       if (p1 != null) logParts.add("param1: '$p1'");
       if (p2 != null) logParts.add("param2: '$p2'");
-      await LogService.log("$ts { ${logParts.join(', ')} }");
+      
+      await LogService.log("$ts { ${logParts.join(', ')} }").timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          print('⚠️ LogService.log timeout');
+        },
+      );
 
       if (eventType == 'session_end') {
-        await SessionService.signalDonePressed();
+        await SessionService.signalDonePressed().timeout(
+          const Duration(seconds: 5),
+          onTimeout: () {
+            print('⚠️ SessionService.signalDonePressed timeout');
+          },
+        );
+      }
+      
+      if (!responseClosed) {
         req.response
           ..statusCode = HttpStatus.ok
-          ..write('OK: session_end received');
-      } else {
-        req.response
-          ..statusCode = HttpStatus.ok
-          ..write('IGNORED: unknown event_type');
+          ..write(eventType == 'session_end' ? 'OK: session_end received' : 'IGNORED: unknown event_type');
       }
     } catch (e) {
-      req.response
-        ..statusCode = HttpStatus.internalServerError
-        ..write('ERROR: $e');
+      if (!responseClosed) {
+        try {
+          req.response
+            ..statusCode = HttpStatus.internalServerError
+            ..write('ERROR: $e');
+        } catch (_) {
+          print('⚠️ Failed to write error response');
+        }
+      }
     } finally {
-      await req.response.close();
+      if (!responseClosed) {
+        try {
+          await req.response.close().timeout(
+            const Duration(seconds: 2),
+            onTimeout: () {
+              print('⚠️ Response close timeout');
+            },
+          );
+          responseClosed = true;
+        } catch (e) {
+          print('⚠️ Error closing response: $e');
+        }
+      }
     }
   }
 

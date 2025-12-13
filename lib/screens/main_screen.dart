@@ -76,6 +76,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
   @override
   void dispose() {
     windowManager.removeListener(this);
+    _preloadTimer?.cancel();
     _escFocusNode.dispose();
     for (final controller in _titleControllers.values) {
       controller.dispose();

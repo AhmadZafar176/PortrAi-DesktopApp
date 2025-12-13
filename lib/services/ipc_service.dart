@@ -86,9 +86,10 @@ class IPCService {
   static Future<String?> sendFilesToExistingInstance(List<String> filePaths) async {
     Socket? socket;
     StreamSubscription? subscription;
+    String? requestId;
     try {
       socket = await Socket.connect(InternetAddress.loopbackIPv4, _port);
-      final requestId = DateTime.now().microsecondsSinceEpoch.toString();
+      requestId = DateTime.now().microsecondsSinceEpoch.toString();
       socket.write(json.encode({'files': filePaths, 'id': requestId}));
 
       final response = await socket.first.timeout(
@@ -139,6 +140,10 @@ class IPCService {
         const Duration(minutes: 2),
         onTimeout: () {
           print('⚠️ Timeout waiting for processing completion');
+          _pendingRequests.remove(requestId);
+          if (!completer.isCompleted) {
+            completer.complete(false);
+          }
           return false;
         },
       );
@@ -146,6 +151,9 @@ class IPCService {
       return success ? requestId : null;
     } catch (e) {
       print('❌ Failed to send files: $e');
+      if (requestId != null) {
+        _pendingRequests.remove(requestId);
+      }
       subscription?.cancel();
       await socket?.close();
       return null;
