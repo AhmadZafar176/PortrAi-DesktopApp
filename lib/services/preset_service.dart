@@ -1466,6 +1466,13 @@ class PresetService {
     print("🔄 PresetService: Resetting user state");
     // Stop listeners when user signs out
     stopRealtimeListeners();
+    
+    // Cancel all debounce timers
+    for (final timer in _debounceTimers.values) {
+      timer.cancel();
+    }
+    _debounceTimers.clear();
+    
     _currentUserId = null;
     _initialSyncCompleted = false;
     _lastFirebaseSync = null;
@@ -1478,6 +1485,11 @@ class PresetService {
     _postDeliveryPresetsLoadedFromFirebase = false;
     _postDeliveryCollectionsLoadedFromFirebase = false;
     _isInitialListenerFire = true;
+    
+    // Clear editing state and retry counts
+    _editingPresets.clear();
+    _retryCounts.clear();
+    
     // Clear SharedPreferences cache on sign-out only (not on app restart)
     await _clearLocalCache();
   }

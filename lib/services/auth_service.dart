@@ -133,6 +133,10 @@ class AuthService {
       }
       return null;
     } catch (e) {
+      // Preserve FirebaseAuthException to allow proper error handling
+      if (e is FirebaseAuthException) {
+        rethrow;
+      }
       throw Exception('Failed to sign in: $e');
     }
   }

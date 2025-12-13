@@ -30,13 +30,17 @@ class IPCService {
   }
 
   void _handleClient(Socket client) {
-    client.listen(
+    StreamSubscription? subscription;
+    String? currentRequestId;
+    
+    subscription = client.listen(
       (data) {
         try {
           final message = utf8.decode(data);
           final payload = json.decode(message) as Map<String, dynamic>;
           final filePaths = (payload['files'] as List<dynamic>).cast<String>();
           final requestId = payload['id'] as String;
+          currentRequestId = requestId;
 
           print('📁 Received files: $filePaths (request $requestId)');
           _onFilesReceived?.call(requestId, filePaths);
@@ -52,30 +56,47 @@ class IPCService {
             client.close();
           });
         } catch (e) {
-
           print('❌ Error handling client: $e');
+          if (currentRequestId != null) {
+            _pendingRequests.remove(currentRequestId);
+          }
           client.write('ERROR');
           client.close();
         }
       },
       onError: (error) {
-
-            print('❌ Client error: $error');
+        print('❌ Client error: $error');
+        if (currentRequestId != null) {
+          _pendingRequests.remove(currentRequestId);
+        }
+        subscription?.cancel();
         client.close();
+        client.destroy();
       },
       onDone: () {
+        if (currentRequestId != null) {
+          _pendingRequests.remove(currentRequestId);
+        }
+        subscription?.cancel();
         client.destroy();
       },
     );
   }
 
   static Future<String?> sendFilesToExistingInstance(List<String> filePaths) async {
+    Socket? socket;
+    StreamSubscription? subscription;
     try {
-      final socket = await Socket.connect(InternetAddress.loopbackIPv4, _port);
+      socket = await Socket.connect(InternetAddress.loopbackIPv4, _port);
       final requestId = DateTime.now().microsecondsSinceEpoch.toString();
       socket.write(json.encode({'files': filePaths, 'id': requestId}));
 
-      final response = await socket.first;
+      final response = await socket.first.timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw TimeoutException('Socket response timeout');
+        },
+      );
       final responseStr = utf8.decode(response);
       final data = json.decode(responseStr) as Map<String, dynamic>;
       final acknowledged = data['status'] == 'OK';
@@ -85,42 +106,67 @@ class IPCService {
       }
 
       final completer = Completer<bool>();
-      _pendingRequests.putIfAbsent(requestId, () => Completer<void>());
 
-      socket.listen(
+      subscription = socket.listen(
         (event) {
           final msg = utf8.decode(event);
           try {
             final result = json.decode(msg) as Map<String, dynamic>;
             if (result['id'] == requestId && result['status'] == 'DONE') {
               _pendingRequests.remove(requestId)?.complete();
-              completer.complete(true);
+              if (!completer.isCompleted) {
+                completer.complete(true);
+              }
             }
           } catch (_) {}
         },
         onError: (error) {
           print('❌ Client socket error: $error');
-          completer.complete(false);
+          _pendingRequests.remove(requestId);
+          if (!completer.isCompleted) {
+            completer.complete(false);
+          }
         },
         onDone: () {
+          _pendingRequests.remove(requestId);
           if (!completer.isCompleted) {
             completer.complete(true);
           }
         },
       );
 
-      final success = await completer.future;
+      final success = await completer.future.timeout(
+        const Duration(minutes: 2),
+        onTimeout: () {
+          print('⚠️ Timeout waiting for processing completion');
+          return false;
+        },
+      );
       await socket.close();
       return success ? requestId : null;
     } catch (e) {
       print('❌ Failed to send files: $e');
+      subscription?.cancel();
+      await socket?.close();
       return null;
     }
   }
 
   static Future<void> waitForProcessingCompletion(String requestId) async {
     final completer = _pendingRequests.putIfAbsent(requestId, () => Completer<void>());
-    await completer.future;
+    try {
+      await completer.future.timeout(
+        const Duration(minutes: 2),
+        onTimeout: () {
+          print('⚠️ Timeout waiting for processing completion: $requestId');
+          _pendingRequests.remove(requestId);
+          throw TimeoutException('Processing completion timeout');
+        },
+      );
+    } catch (e) {
+      _pendingRequests.remove(requestId);
+      rethrow;
+    }
   }
 
   static Future<void> signalCompletion(String requestId) async {

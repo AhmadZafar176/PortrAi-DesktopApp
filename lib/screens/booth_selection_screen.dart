@@ -513,7 +513,17 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
   void _startWorkerCompletionPolling(AppState appState) {
     _workerPollTimer?.cancel();
     _workerPollTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) async {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      
       final isDone = await SessionService.checkWorkerDone();
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      
       if (isDone) {
         timer.cancel();
         await SessionService.clearWorkerDone();
@@ -606,9 +616,18 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
       }
       
       final pressed = await SessionService.checkDonePressed();
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      
       if (pressed) {
         timer.cancel();
         await SessionService.clearDonePressed();
+        
+        if (!mounted) {
+          return;
+        }
         
         if (Platform.isWindows) {
           print('📥 session_end received, restoring window...');

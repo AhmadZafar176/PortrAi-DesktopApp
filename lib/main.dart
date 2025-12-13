@@ -244,8 +244,8 @@ class _PortraiAppState extends State<PortraiApp> {
             darkTheme: AppTheme.darkTheme,
             themeMode: appState.isDarkMode ? ThemeMode.dark : ThemeMode.light,
             home: appState.currentUser != null 
-                ? const MainScreen() 
-                : const LoginScreen(),
+                ? MainScreen() 
+                : LoginScreen(),
             debugShowCheckedModeBanner: false,
             builder: (context, child) {
               final mq = MediaQuery.of(context);

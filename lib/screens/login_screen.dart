@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:io';
 import '../providers/app_state.dart';
 
@@ -352,11 +353,70 @@ class _LoginScreenState extends State<LoginScreen> {
 
     } catch (e) {
       setState(() {
-        _errorMessage = e.toString().replaceFirst('Exception: ', '');
+        String errorCode = '';
+        String errorMessage = '';
+        
+        // Check if it's a FirebaseAuthException
+        if (e is FirebaseAuthException) {
+          errorCode = e.code.toLowerCase();
+          errorMessage = e.message?.toLowerCase() ?? '';
+        } else {
+          // Extract error code from exception message
+          final errorString = e.toString().toLowerCase();
+          errorMessage = errorString;
+          
+          // Try to extract Firebase error code from format "[firebase auth/error-code]"
+          final regex = RegExp(r'\[firebase\s+auth/([^\]]+)\]');
+          final match = regex.firstMatch(errorString);
+          if (match != null) {
+            errorCode = match.group(1)?.toLowerCase() ?? '';
+          } else {
+            // Fallback: Check for common Firebase Auth error codes in the message
+            if (errorString.contains('wrong-password')) {
+              errorCode = 'wrong-password';
+            } else if (errorString.contains('user-not-found')) {
+              errorCode = 'user-not-found';
+            } else if (errorString.contains('invalid-credential')) {
+              errorCode = 'invalid-credential';
+            } else if (errorString.contains('invalid-email')) {
+              errorCode = 'invalid-email';
+            } else if (errorString.contains('unknown-error') || errorString.contains('auth/unknown-error')) {
+              errorCode = 'unknown-error';
+            }
+          }
+        }
+        
+        // Handle all authentication-related errors with the same message
+        // Note: Firebase sometimes returns "unknown-error" for wrong credentials to prevent user enumeration
+        // During sign-in attempts, "unknown-error" with "internal error" typically means wrong credentials
+        if (errorCode == 'wrong-password' || 
+            errorCode == 'user-not-found' || 
+            errorCode == 'invalid-credential' ||
+            errorCode == 'invalid-email' ||
+            errorCode == 'unknown-error') {
+          _errorMessage = 'Wrong email/password, please recheck your credentials.';
+        } else {
+          // For other errors, show the original message
+          _errorMessage = e.toString().replaceFirst('Exception: ', '');
+        }
+      });
+      
+      // Ensure focus is maintained after error so ESC key continues to work
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_escFocusNode.hasFocus) {
+          _escFocusNode.requestFocus();
+        }
       });
     } finally {
       setState(() {
         _isLoading = false;
+      });
+      
+      // Ensure focus is maintained after loading completes
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_escFocusNode.hasFocus) {
+          _escFocusNode.requestFocus();
+        }
       });
     }
   }
