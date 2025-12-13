@@ -181,6 +181,7 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
     _snapTimer?.cancel();
     _coalesceTimer?.cancel();
     _workerPollTimer?.cancel();
+    _donePollTimer?.cancel();
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     _focusNode.dispose();
@@ -525,11 +526,39 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
 
 
   bool _restoring = false;
+  DateTime? _restoreStartTime;
+  static const Duration _restoreTimeout = Duration(seconds: 5);
+
   Future<void> _restoreSeamless(AppState appState) async {
-    if (_restoring) return;
+    if (_restoring) {
+      final elapsed = _restoreStartTime != null 
+          ? DateTime.now().difference(_restoreStartTime!)
+          : Duration.zero;
+      if (elapsed > _restoreTimeout) {
+        print('⚠️ Restore timeout exceeded, resetting _restoring flag');
+        _restoring = false;
+        _restoreStartTime = null;
+      } else {
+        print('⚠️ Restore already in progress, skipping');
+        return;
+      }
+    }
+    
     _restoring = true;
+    _restoreStartTime = DateTime.now();
+    
+    bool alwaysOnTopSet = false;
+    
     try {
+      if (!mounted) {
+        print('⚠️ Widget disposed, skipping window restoration');
+        return;
+      }
+      
+      print('🔄 Starting window restoration...');
       await windowManager.setAlwaysOnTop(true);
+      alwaysOnTopSet = true;
+      
       await windowManager.setOpacity(0.0);
       await windowManager.restore();
       await windowManager.show();
@@ -539,21 +568,50 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
       await windowManager.setFullScreen(true);
       await Future.delayed(const Duration(milliseconds: 60));
       await windowManager.setOpacity(1.0);
-    } catch (_) {} finally {
-      await windowManager.setAlwaysOnTop(false);
-      appState.setStayMinimizedDuringCapture(false);
-      _restoring = false;
+      
+      await Future.delayed(const Duration(milliseconds: 200));
+      
+      if (mounted) {
+        await windowManager.setAlwaysOnTop(false);
+        alwaysOnTopSet = false;
+      }
+      
+      print('✅ Window restoration completed successfully');
+    } catch (e, stack) {
+      print('❌ Error restoring window: $e');
+      print('Stack trace: $stack');
+    } finally {
+      try {
+        if (alwaysOnTopSet && mounted) {
+          await windowManager.setAlwaysOnTop(false);
+        }
+        if (mounted) {
+          appState.setStayMinimizedDuringCapture(false);
+        }
+      } catch (e) {
+        print('⚠️ Error resetting window state: $e');
+      } finally {
+        _restoring = false;
+        _restoreStartTime = null;
+      }
     }
   }
 
   void _startDonePressedPolling(AppState appState) {
     _donePollTimer?.cancel();
     _donePollTimer = Timer.periodic(const Duration(milliseconds: 400), (timer) async {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      
       final pressed = await SessionService.checkDonePressed();
       if (pressed) {
         timer.cancel();
         await SessionService.clearDonePressed();
-        if (mounted && Platform.isWindows) {
+        
+        if (Platform.isWindows) {
+          print('📥 session_end received, restoring window...');
           await _restoreSeamless(appState);
         }
       }

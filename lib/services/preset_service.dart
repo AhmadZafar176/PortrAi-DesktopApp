@@ -794,6 +794,19 @@ class PresetService {
     }
   }
 
+  Future<void> _clearLocalCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('local_presets');
+      await prefs.remove('local_collections');
+      await prefs.remove('local_post_delivery_presets');
+      await prefs.remove('local_post_delivery_collections');
+      print('✅ Cleared SharedPreferences cache');
+    } catch (e) {
+      print('❌ Failed to clear SharedPreferences cache: $e');
+    }
+  }
+
   List<Preset> getPresetsForDataSource(String dataSource) {
 
     final isLive = dataSource == 'live';
@@ -1449,7 +1462,7 @@ class PresetService {
 
   /// Reset user state when user signs out
   /// This ensures a fresh sync when a new user signs in
-  void resetUserState() {
+  Future<void> resetUserState() async {
     print("🔄 PresetService: Resetting user state");
     // Stop listeners when user signs out
     stopRealtimeListeners();
@@ -1465,5 +1478,7 @@ class PresetService {
     _postDeliveryPresetsLoadedFromFirebase = false;
     _postDeliveryCollectionsLoadedFromFirebase = false;
     _isInitialListenerFire = true;
+    // Clear SharedPreferences cache on sign-out only (not on app restart)
+    await _clearLocalCache();
   }
 }

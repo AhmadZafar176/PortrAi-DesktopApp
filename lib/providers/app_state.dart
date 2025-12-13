@@ -6,6 +6,7 @@ import '../models/preset.dart';
 import '../models/collection.dart';
 import '../services/auth_service.dart';
 import '../services/preset_service.dart';
+import '../services/session_service.dart';
 
 class AppState extends ChangeNotifier {
   final AuthService _authService = AuthService();
@@ -41,6 +42,7 @@ class AppState extends ChangeNotifier {
       _currentUser = user;
       if (user != null) {
         print('AppState:user signed in ${user.uid}');
+        await SessionService.clearSession();
         // Add a small delay to ensure Firebase Auth token is fully propagated
         // This helps prevent internal server errors when accessing Firestore for new users
         await Future.delayed(const Duration(milliseconds: 500));
@@ -48,6 +50,7 @@ class AppState extends ChangeNotifier {
         _loadUserSettings();
       } else {
         print('AppState:user signed out');
+        await SessionService.clearSession();
         _presets.clear();
         _collections.clear();
         _presetPassword = '';
@@ -229,7 +232,7 @@ class AppState extends ChangeNotifier {
       _presets.clear();
       _collections.clear();
       // Reset PresetService user state so next sign-in is properly detected
-      _presetService.resetUserState();
+      await _presetService.resetUserState();
       notifyListeners();
     } catch (e) {
       debugPrint('Error signing out: $e');

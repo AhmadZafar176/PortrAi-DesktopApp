@@ -37,18 +37,18 @@ class _UserProfileWidgetState extends State<UserProfileWidget> {
               // Do nothing - this prevents the outer GestureDetector from firing
             },
             child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
 
-                AnimatedSize(
-                  duration: const Duration(milliseconds: 300),
-                  curve: Curves.easeInOut,
-                  child: _isMenuOpen ? _buildSlideOutMenu(appState) : const SizedBox.shrink(),
-                ),
+            AnimatedSize(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeInOut,
+              child: _isMenuOpen ? _buildSlideOutMenu(appState) : const SizedBox.shrink(),
+            ),
 
-                _buildEnhancedProfileButton(appState),
-              ],
+            _buildEnhancedProfileButton(appState),
+          ],
             ),
           ),
         );

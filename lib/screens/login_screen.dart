@@ -48,8 +48,8 @@ class _LoginScreenState extends State<LoginScreen> {
         }
       },
       child: Scaffold(
-        backgroundColor: const Color(0xFF0B1120),
-        body: Center(
+      backgroundColor: const Color(0xFF0B1120),
+      body: Center(
         child: SingleChildScrollView(
           child: Container(
             width: 450,
@@ -296,10 +296,10 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 ],
               ),
+              ),
             ),
           ),
         ),
-      ),
       ),
     );
   }
@@ -375,9 +375,14 @@ class _LoginScreenState extends State<LoginScreen> {
       await appState.signInWithGoogle();
       print('🔍 Google Sign-In completed successfully!');
 
-      // Bring app window to foreground after successful login
-      // The Google account picker might have put the app in the background
-      await _bringAppToForeground();
+      // Wait for userStream to fire and navigation to start
+      // Then bring app to foreground after navigation completes
+      await Future.delayed(const Duration(milliseconds: 600));
+      
+      // Only bring to foreground if widget is still mounted
+      if (mounted) {
+        await _bringAppToForeground();
+      }
 
     } catch (e) {
       print('🔍 Google Sign-In error: $e');
@@ -390,40 +395,50 @@ class _LoginScreenState extends State<LoginScreen> {
         }
       });
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
   Future<void> _bringAppToForeground() async {
     if (!Platform.isWindows) return;
     
+    bool alwaysOnTopSet = false;
+    
     try {
+      if (!mounted) return;
+      
       print('🔍 Bringing app window to foreground...');
       
-      // Temporarily set always on top to ensure window comes forward
       await windowManager.setAlwaysOnTop(true);
+      alwaysOnTopSet = true;
       
-      // Restore window if minimized
       await windowManager.restore();
-      
-      // Show and focus the window
       await windowManager.show();
       await Future.delayed(const Duration(milliseconds: 50));
       await windowManager.focus();
-      
-      // Ensure fullscreen is set
       await windowManager.setFullScreen(true);
       
-      // Reset always on top after bringing to foreground
-      await Future.delayed(const Duration(milliseconds: 100));
-      await windowManager.setAlwaysOnTop(false);
+      await Future.delayed(const Duration(milliseconds: 200));
+      
+      if (mounted) {
+        await windowManager.setAlwaysOnTop(false);
+        alwaysOnTopSet = false;
+      }
       
       print('🔍 App window brought to foreground successfully');
     } catch (e) {
       print('🔍 Error bringing app to foreground: $e');
-      // Don't throw - this is a nice-to-have feature
+      if (alwaysOnTopSet && mounted) {
+        try {
+          await windowManager.setAlwaysOnTop(false);
+        } catch (_) {
+          print('🔍 Error resetting alwaysOnTop');
+        }
+      }
     }
   }
 }

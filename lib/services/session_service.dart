@@ -136,6 +136,18 @@ class SessionService {
       }
     } catch (_) {}
   }
+
+  static Future<void> clearSession() async {
+    try {
+      final file = File(_sessionFilePath());
+      if (await file.exists()) {
+        await file.delete();
+        print('✅ Session data cleared');
+      }
+    } catch (e) {
+      print('❌ Failed to clear session: $e');
+    }
+  }
 }
 
 
