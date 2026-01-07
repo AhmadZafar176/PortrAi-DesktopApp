@@ -19,6 +19,22 @@ import 'services/event_server_service.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await LogService.init();
+
+  final originalFlutterOnError = FlutterError.onError;
+  FlutterError.onError = (FlutterErrorDetails details) async {
+    try {
+      await LogService.log(
+        'FlutterError: ${details.exceptionAsString()}\n${details.stack ?? ''}',
+      );
+    } catch (_) {}
+    originalFlutterOnError?.call(details);
+  };
+
+  WidgetsBinding.instance.platformDispatcher.onError = (error, stack) {
+    unawaited(LogService.log('PlatformDispatcher.onError: $error\n$stack'));
+    return false;
+  };
+
   runZonedGuarded(() async {
     if (!Platform.isWindows) {
       runApp(const MaterialApp(
@@ -50,8 +66,6 @@ void main() async {
       return;
     }
 
-    // Enforce single instance: Check if IPC server can start
-    // If not, another instance is running - forward any command-line files and exit
     if (!await _enforceSingleInstance(droppedFiles)) {
       await LogService.log('Another instance detected, exiting...');
       exit(0);
@@ -89,7 +103,12 @@ void main() async {
     runApp(const PortraiApp());
   }, (error, stack) async {
     await LogService.log('Uncaught error: $error\n$stack');
-  });
+  }, zoneSpecification: ZoneSpecification(
+    print: (self, parent, zone, line) {
+      parent.print(zone, line);
+      unawaited(LogService.log('PRINT: $line'));
+    },
+  ));
 }
 
 Future<List<String>> _getCommandLineFiles() async {
@@ -133,30 +152,21 @@ bool _isImageFile(String filePath) {
   return ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'].contains(extension);
 }
 
-/// Enforces single instance by checking if IPC server can bind to port.
-/// Returns true if this is the first instance (server started successfully).
-/// Returns false if another instance is running (server failed to start).
-/// If another instance exists, attempts to forward files to it.
 Future<bool> _enforceSingleInstance(List<String> files) async {
   try {
-    // Try to bind to the IPC port
     final testSocket = await ServerSocket.bind(InternetAddress.loopbackIPv4, 45678);
-    // If successful, close it immediately (we'll start it properly in PortraiApp)
     await testSocket.close();
     print('✅ Single instance check passed - this is the first instance');
     return true;
   } catch (e) {
-    // Port is already in use - another instance is running
     print('⚠️ Another instance detected (port 45678 already in use)');
     
-    // If there are files to process, forward them to the existing instance
     if (files.isNotEmpty) {
       print('📤 Forwarding ${files.length} file(s) to existing instance...');
       try {
         final requestId = await IPCService.sendFilesToExistingInstance(files);
         if (requestId != null) {
           print('✅ Files forwarded successfully (request: $requestId)');
-          // Wait a moment for the request to be acknowledged
           await Future.delayed(const Duration(milliseconds: 500));
         } else {
           print('⚠️ Failed to forward files to existing instance');
@@ -168,7 +178,7 @@ Future<bool> _enforceSingleInstance(List<String> files) async {
       print('ℹ️ No files to forward');
     }
     
-    return false; // Another instance exists
+    return false;
   }
 }
 
@@ -196,14 +206,11 @@ class _PortraiAppState extends State<PortraiApp> {
     });
 
     if (success) {
-      // Process any command-line files that weren't already forwarded
       final commandLineFiles = await _getCommandLineFiles();
       if (commandLineFiles.isNotEmpty) {
         _processFilesInContext(commandLineFiles, '');
       }
     } else {
-      // This should never happen if _enforceSingleInstance() worked correctly
-      // But if it does, log it and continue (don't exit here as app is already running)
       await LogService.log('⚠️ IPC Server failed to start in PortraiApp (unexpected)');
     }
   }

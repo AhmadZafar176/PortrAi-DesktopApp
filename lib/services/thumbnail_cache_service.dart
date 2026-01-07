@@ -14,6 +14,7 @@ class ThumbnailCacheService {
   final List<String> _lru = <String>[];
   int maxEntries = 300;
   final Map<String, Future<void>> _inflight = <String, Future<void>>{};
+  final Set<String> _failed = <String>{};
 
 
   ImageProvider providerFor(String url) {
@@ -48,8 +49,9 @@ class ThumbnailCacheService {
   }
 
   Future<void> _download(String url) async {
+    HttpClient? client;
     try {
-      final client = HttpClient();
+      client = HttpClient();
       final request = await client.getUrl(Uri.parse(url));
       final response = await request.close();
       if (response.statusCode == 200) {
@@ -58,10 +60,26 @@ class ThumbnailCacheService {
         _providerByUrl[url] = MemoryImage(bytes);
         _touch(url);
         _evictIfNeeded();
+        _failed.remove(url);
+      } else {
+        if (_failed.add(url)) {
+          assert(() {
+            debugPrint('🖼️ ThumbnailCacheService: HTTP ${response.statusCode} for $url');
+            return true;
+          }());
+        }
       }
-      client.close(force: true);
-    } catch (_) {
-
+    } catch (e) {
+      if (_failed.add(url)) {
+        assert(() {
+          debugPrint('🖼️ ThumbnailCacheService: download failed for $url -> $e');
+          return true;
+        }());
+      }
+    } finally {
+      try {
+        client?.close(force: true);
+      } catch (_) {}
     }
   }
 

@@ -17,7 +17,8 @@ class _UserProfileWidgetState extends State<UserProfileWidget> {
   Widget build(BuildContext context) {
     return Consumer<AppState>(
       builder: (context, appState, child) {
-        if (appState.currentUser == null) {
+        final user = appState.currentUser;
+        if (user == null) {
           return const SizedBox.shrink();
         }
 
@@ -160,7 +161,7 @@ class _UserProfileWidgetState extends State<UserProfileWidget> {
     );
   }
 
-  Widget _buildEnhancedProfileButton(dynamic appState) {
+  Widget _buildEnhancedProfileButton(AppState appState) {
     return StatefulBuilder(
       builder: (context, setState) {
         bool isHovered = false;
@@ -227,7 +228,7 @@ class _UserProfileWidgetState extends State<UserProfileWidget> {
                         ),
                       ),
                       child: ClipOval(
-                        child: appState.currentUser!.photoURL != null
+                        child: appState.currentUser?.photoURL != null
                             ? Image.network(
                                 _getWebCompatibleImageUrl(appState.currentUser!.photoURL!),
                                 width: 40,
@@ -254,8 +255,8 @@ class _UserProfileWidgetState extends State<UserProfileWidget> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Text(
-                            appState.currentUser!.displayName ?? 
-                            appState.currentUser!.email.split('@')[0],
+                            appState.currentUser?.displayName ?? 
+                            (appState.currentUser?.email.split('@')[0] ?? ''),
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 14,
@@ -265,7 +266,7 @@ class _UserProfileWidgetState extends State<UserProfileWidget> {
                             overflow: TextOverflow.ellipsis,
                           ),
                           Text(
-                            appState.currentUser!.email,
+                            appState.currentUser?.email ?? '',
                             style: const TextStyle(
                               color: Color(0xFF94A3B8),
                               fontSize: 12,

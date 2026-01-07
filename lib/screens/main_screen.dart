@@ -1221,9 +1221,35 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
       );
 
       if (result != null && result.files.single.path != null) {
+        if (index < 0 || index >= appState.presets.length) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Selected preset is no longer available.'),
+              backgroundColor: Color(0xFFEF4444),
+            ),
+          );
+          return;
+        }
+
+        final currentPreset = appState.presets[index];
+        final presetId = currentPreset.presetId;
+        if (presetId.isEmpty) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Invalid preset selected.'),
+              backgroundColor: Color(0xFFEF4444),
+            ),
+          );
+          return;
+        }
+
         final file = File(result.files.single.path!);
         final presetService = PresetService();
 
+        if (!mounted) return;
+        bool dialogShown = false;
         showDialog(
           context: context,
           barrierDismissible: false,
@@ -1233,20 +1259,23 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
             ),
           ),
         );
+        dialogShown = true;
 
         try {
           await LogService.log('ThumbSelect:start presetIndex=$index file=${file.path}');
 
-          final imageUrl = await presetService.uploadImage(file, appState.presets[index].presetId);
+          final imageUrl = await presetService.uploadImage(file, presetId);
 
-          final currentPreset = appState.presets[index];
           await LogService.log('ThumbSelect:uploaded url=$imageUrl for presetId=${currentPreset.presetId}');
-          final updatedPreset = currentPreset.copyWith(generatedImageUrls: imageUrl);
 
           await presetService.appendGeneratedImageUrlToPreset(currentPreset, imageUrl);
           await LogService.log('ThumbSelect:append complete presetId=${currentPreset.presetId}');
 
-          Navigator.pop(context);
+          if (!mounted) return;
+          if (dialogShown && Navigator.of(context).canPop()) {
+            Navigator.pop(context);
+            dialogShown = false;
+          }
           
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -1256,7 +1285,11 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
           );
         } catch (e) {
 
-          Navigator.pop(context);
+          if (!mounted) return;
+          if (dialogShown && Navigator.of(context).canPop()) {
+            Navigator.pop(context);
+            dialogShown = false;
+          }
           
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -1267,6 +1300,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
         }
       }
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Error selecting image: $e'),

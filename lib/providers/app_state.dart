@@ -45,8 +45,6 @@ class AppState extends ChangeNotifier {
       if (user != null) {
         print('AppState:user signed in ${user.uid}');
         await SessionService.clearSession();
-        // Add a small delay to ensure Firebase Auth token is fully propagated
-        // This helps prevent internal server errors when accessing Firestore for new users
         await Future.delayed(const Duration(milliseconds: 500));
         _loadUserData();
         _loadUserSettings();
@@ -74,11 +72,10 @@ class AppState extends ChangeNotifier {
     _setLoading(true);
     try {
       await _presetService.initialize();
-      // Refresh data after initialization to ensure latest data is loaded
       _presets = _presetService.getPresetsForDataSource(_dataSource);
       _collections = _presetService.getCollectionsForDataSource(_dataSource);
       print("✅ AppState: Loaded ${_presets.length} presets and ${_collections.length} collections for data source '$_dataSource'");
-      notifyListeners(); // Ensure UI updates with new data
+      notifyListeners();
     } catch (e) {
       debugPrint('Error loading user data: $e');
     } finally {
@@ -88,13 +85,15 @@ class AppState extends ChangeNotifier {
 
   Future<void> _loadUserSettings() async {
     try {
-      if (_currentUser == null) return;
+      final user = _currentUser;
+      if (user == null) return;
       final doc = await FirebaseFirestore.instance
           .collection('users')
-          .doc(_currentUser!.uid)
+          .doc(user.uid)
           .get();
+
+      if (_currentUser == null || _currentUser!.uid != user.uid) return;
       
-      // If user document doesn't exist, that's fine - user is new
       if (!doc.exists) {
         print("📁 User document doesn't exist yet - this is normal for new users");
         _presetPassword = '';
@@ -188,7 +187,6 @@ class AppState extends ChangeNotifier {
       _currentUser = null;
       _presets.clear();
       _collections.clear();
-      // Reset PresetService user state so next sign-in is properly detected
       await _presetService.resetUserState();
       notifyListeners();
     } catch (e) {
@@ -207,6 +205,14 @@ class AppState extends ChangeNotifier {
     
     _presets = _presetService.getPresetsForDataSource(_dataSource);
     _collections = _presetService.getCollectionsForDataSource(_dataSource);
+
+    if (_presets.isEmpty) {
+      _selectedIndex = 0;
+    } else if (_selectedIndex < 0) {
+      _selectedIndex = 0;
+    } else if (_selectedIndex >= _presets.length) {
+      _selectedIndex = _presets.length - 1;
+    }
     
     notifyListeners();
     

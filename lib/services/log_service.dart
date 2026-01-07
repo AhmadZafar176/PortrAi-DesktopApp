@@ -1,9 +1,13 @@
 import 'dart:io';
+import 'dart:async';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:path/path.dart' as p;
 
 class LogService {
   static String? _logFilePath;
   static const int maxLogFileSizeBytes = 10 * 1024 * 1024;
+  static Future<void> _writeQueue = Future<void>.value();
+  static bool _initialized = false;
 
   static Future<void> init() async {
     try {
@@ -20,8 +24,11 @@ class LogService {
 
       await _rotateLogIfNeeded();
 
-      final banner = '===== ${DateTime.now().toIso8601String()} START =====\n';
-      await File(_logFilePath!).writeAsString(banner, mode: FileMode.append, flush: true);
+      final banner =
+          '===== ${DateTime.now().toIso8601String()} START pid=${pid} =====\n';
+      await File(_logFilePath!)
+          .writeAsString(banner, mode: FileMode.append, flush: true);
+      _initialized = true;
     } catch (_) {
 
     }
@@ -41,27 +48,33 @@ class LogService {
           await backupFile.delete();
         }
         await logFile.rename(backupPath);
-        print('✅ Log file rotated (size: $fileSize bytes)');
+        debugPrint('✅ Log file rotated (size: $fileSize bytes)');
       }
     } catch (e) {
-      print('⚠️ Error rotating log file: $e');
+      debugPrint('⚠️ Error rotating log file: $e');
     }
   }
 
   static Future<void> log(String message) async {
-    try {
-      if (_logFilePath == null) {
-        await init();
-      }
-      
-      await _rotateLogIfNeeded();
-      
-      final ts = DateTime.now().toIso8601String();
-      await File(_logFilePath!)
-          .writeAsString('[$ts] $message\n', mode: FileMode.append, flush: false);
-    } catch (_) {
+    _writeQueue = _writeQueue.then((_) async {
+      try {
+        if (_logFilePath == null || !_initialized) {
+          await init();
+        }
+        if (_logFilePath == null) return;
 
-    }
+        await _rotateLogIfNeeded();
+
+        final ts = DateTime.now().toIso8601String();
+        await File(_logFilePath!).writeAsString(
+          '[$ts] $message\n',
+          mode: FileMode.append,
+          flush: true,
+        );
+      } catch (_) {
+      }
+    });
+    return _writeQueue;
   }
 
   static String? get logFilePath => _logFilePath;

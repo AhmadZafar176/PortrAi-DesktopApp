@@ -6,6 +6,7 @@ import 'dart:async';
 class IPCService {
   static const int _port = 45678;
   static const String _appName = 'portrai_app';
+  static const String _newline = '\n';
   
   ServerSocket? _serverSocket;
   StreamSubscription? _subscription;
@@ -32,36 +33,26 @@ class IPCService {
   void _handleClient(Socket client) {
     StreamSubscription? subscription;
     String? currentRequestId;
+    final buffer = StringBuffer();
     
     subscription = client.listen(
       (data) {
-        try {
-          final message = utf8.decode(data);
-          final payload = json.decode(message) as Map<String, dynamic>;
-          final filePaths = (payload['files'] as List<dynamic>).cast<String>();
-          final requestId = payload['id'] as String;
-          currentRequestId = requestId;
+        buffer.write(utf8.decode(data));
 
-          print('📁 Received files: $filePaths (request $requestId)');
-          _onFilesReceived?.call(requestId, filePaths);
+        final content = buffer.toString();
+        final lines = content.split(_newline);
 
-          final completer = Completer<void>();
-          _pendingRequests[requestId] = completer;
+        buffer.clear();
+        if (lines.isNotEmpty) {
+          buffer.write(lines.removeLast());
+        }
 
-          client.write(json.encode({'status': 'OK', 'id': requestId}));
-
-          completer.future.whenComplete(() {
-            _pendingRequests.remove(requestId);
-            client.write(json.encode({'status': 'DONE', 'id': requestId}));
-            client.close();
+        for (final line in lines) {
+          final trimmed = line.trim();
+          if (trimmed.isEmpty) continue;
+          _handleIncomingJsonLine(trimmed, client, (requestId) {
+            currentRequestId = requestId;
           });
-        } catch (e) {
-          print('❌ Error handling client: $e');
-          if (currentRequestId != null) {
-            _pendingRequests.remove(currentRequestId);
-          }
-          client.write('ERROR');
-          client.close();
         }
       },
       onError: (error) {
@@ -74,6 +65,15 @@ class IPCService {
         client.destroy();
       },
       onDone: () {
+        final trailing = buffer.toString().trim();
+        if (trailing.isNotEmpty) {
+          try {
+            _handleIncomingJsonLine(trailing, client, (requestId) {
+              currentRequestId = requestId;
+            });
+          } catch (_) {
+          }
+        }
         if (currentRequestId != null) {
           _pendingRequests.remove(currentRequestId);
         }
@@ -83,6 +83,37 @@ class IPCService {
     );
   }
 
+  void _handleIncomingJsonLine(
+    String jsonLine,
+    Socket client,
+    void Function(String requestId) setRequestId,
+  ) {
+    try {
+      final payload = json.decode(jsonLine) as Map<String, dynamic>;
+      final filePaths = (payload['files'] as List<dynamic>).cast<String>();
+      final requestId = payload['id'] as String;
+      setRequestId(requestId);
+
+      print('📁 Received files: $filePaths (request $requestId)');
+      _onFilesReceived?.call(requestId, filePaths);
+
+      final completer = Completer<void>();
+      _pendingRequests[requestId] = completer;
+
+      client.write('${json.encode({'status': 'OK', 'id': requestId})}$_newline');
+
+      completer.future.whenComplete(() {
+        _pendingRequests.remove(requestId);
+        client.write('${json.encode({'status': 'DONE', 'id': requestId})}$_newline');
+        client.close();
+      });
+    } catch (e) {
+      print('❌ Error handling client payload: $e');
+      client.write('ERROR$_newline');
+      client.close();
+    }
+  }
+
   static Future<String?> sendFilesToExistingInstance(List<String> filePaths) async {
     Socket? socket;
     StreamSubscription? subscription;
@@ -90,51 +121,67 @@ class IPCService {
     try {
       socket = await Socket.connect(InternetAddress.loopbackIPv4, _port);
       requestId = DateTime.now().microsecondsSinceEpoch.toString();
-      socket.write(json.encode({'files': filePaths, 'id': requestId}));
-
-      final response = await socket.first.timeout(
-        const Duration(seconds: 10),
-        onTimeout: () {
-          throw TimeoutException('Socket response timeout');
-        },
-      );
-      final responseStr = utf8.decode(response);
-      final data = json.decode(responseStr) as Map<String, dynamic>;
-      final acknowledged = data['status'] == 'OK';
-      if (!acknowledged) {
-        socket.close();
-        return null;
-      }
+      socket.write('${json.encode({'files': filePaths, 'id': requestId})}$_newline');
 
       final completer = Completer<bool>();
+      final okCompleter = Completer<bool>();
+      final buffer = StringBuffer();
 
       subscription = socket.listen(
         (event) {
-          final msg = utf8.decode(event);
-          try {
-            final result = json.decode(msg) as Map<String, dynamic>;
-            if (result['id'] == requestId && result['status'] == 'DONE') {
-              _pendingRequests.remove(requestId)?.complete();
-              if (!completer.isCompleted) {
-                completer.complete(true);
+          buffer.write(utf8.decode(event));
+          final content = buffer.toString();
+          final lines = content.split(_newline);
+          buffer.clear();
+          if (lines.isNotEmpty) {
+            buffer.write(lines.removeLast());
+          }
+
+          for (final line in lines) {
+            final trimmed = line.trim();
+            if (trimmed.isEmpty) continue;
+            try {
+              final result = json.decode(trimmed) as Map<String, dynamic>;
+              if (result['id'] == requestId && result['status'] == 'OK') {
+                if (!okCompleter.isCompleted) okCompleter.complete(true);
               }
+              if (result['id'] == requestId && result['status'] == 'DONE') {
+                _pendingRequests.remove(requestId)?.complete();
+                if (!completer.isCompleted) {
+                  completer.complete(true);
+                }
+              }
+            } catch (_) {
             }
-          } catch (_) {}
+          }
         },
         onError: (error) {
           print('❌ Client socket error: $error');
           _pendingRequests.remove(requestId);
+          if (!okCompleter.isCompleted) okCompleter.complete(false);
           if (!completer.isCompleted) {
             completer.complete(false);
           }
         },
         onDone: () {
           _pendingRequests.remove(requestId);
+          if (!okCompleter.isCompleted) okCompleter.complete(true);
           if (!completer.isCompleted) {
             completer.complete(true);
           }
         },
       );
+
+      final acknowledged = await okCompleter.future.timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw TimeoutException('Socket OK response timeout');
+        },
+      );
+      if (!acknowledged) {
+        await socket.close();
+        return null;
+      }
 
       final success = await completer.future.timeout(
         const Duration(minutes: 2),

@@ -42,6 +42,15 @@ class PresetService {
   StreamSubscription<QuerySnapshot>? _presetsListener;
   bool _isListening = false;
 
+  // Real-time per-collection presets listeners (needed so preset add/update/delete is reflected immediately).
+  final Map<String, StreamSubscription<QuerySnapshot>> _presetSubListeners = {};
+  final Map<String, List<Preset>> _livePresetsByCollectionId = {};
+  final Map<String, String> _collectionIdToName = {};
+  List<String> _collectionOrder = const [];
+
+  // Avoid unnecessary UI refreshes / image widget rebuilds when nothing meaningful changed.
+  String _lastAppliedPresetsSignature = '';
+
   final Set<String> _editingPresets = <String>{};
   final Map<String, int> _retryCounts = <String, int>{};
   static const int _maxRetries = 3;
@@ -154,13 +163,8 @@ class PresetService {
 
   Future<void> _performFirebaseSync() async {
     try {
-      final currentLocalPresets = List<Preset>.from(_localPresets);
-      final currentLocalCollections = List<Collection>.from(_localCollections);
-
       await _fetchUserPresets();
       await _fetchUserCollections();
-
-      _mergeLocalChangesWithFirebaseData(currentLocalPresets, currentLocalCollections);
       
       await _saveLocalCache();
       print("✅ Firebase sync completed successfully");
@@ -570,6 +574,11 @@ class PresetService {
           break;
         }
       }
+      // Keep signature in sync so the subsequent Firestore snapshot doesn't cause a redundant UI refresh.
+      _lastAppliedPresetsSignature = _presetSignature([
+        ..._localPresets,
+        ..._localPostDeliveryPresets,
+      ]);
       _notifyDataChanged();
     } catch (e) {
       await LogService.log('ThumbReplace:error presetId=${preset.presetId} -> $e');
@@ -786,6 +795,15 @@ class PresetService {
 
     await _presetsListener?.cancel();
 
+    // Cancel any existing per-collection preset listeners before rebuilding them.
+    for (final sub in _presetSubListeners.values) {
+      await sub.cancel();
+    }
+    _presetSubListeners.clear();
+    _livePresetsByCollectionId.clear();
+    _collectionIdToName.clear();
+    _collectionOrder = const [];
+
     _isInitialListenerFire = true;
 
     _startLivePresetsListener();
@@ -815,13 +833,34 @@ class PresetService {
                 print("📁 No collections in listener snapshot - clearing presets");
                 _localPresets.clear();
                 _localPostDeliveryPresets.clear();
+                for (final sub in _presetSubListeners.values) {
+                  await sub.cancel();
+                }
+                _presetSubListeners.clear();
+                _livePresetsByCollectionId.clear();
+                _collectionIdToName.clear();
+                _collectionOrder = const [];
                 _saveLocalCache();
                 _notifyDataChanged();
                 return;
               }
 
-              final List<Preset> allPresets = [];
-              
+              // Keep collection order stable (used to build a stable preset ordering).
+              _collectionOrder = collectionsSnapshot.docs.map((d) => d.id).toList(growable: false);
+
+              final currentIds = collectionsSnapshot.docs.map((d) => d.id).toSet();
+
+              // Remove listeners for deleted collections.
+              for (final existingId in _presetSubListeners.keys.toList()) {
+                if (!currentIds.contains(existingId)) {
+                  await _presetSubListeners[existingId]?.cancel();
+                  _presetSubListeners.remove(existingId);
+                  _livePresetsByCollectionId.remove(existingId);
+                  _collectionIdToName.remove(existingId);
+                }
+              }
+
+              // Ensure we have a presets snapshots listener for each collection.
               for (final collectionDoc in collectionsSnapshot.docs) {
                 final collectionId = collectionDoc.id;
                 final collectionData = collectionDoc.data();
@@ -830,44 +869,74 @@ class PresetService {
                     : 'Default';
 
                 _collectionNameToId[collectionName] = collectionId;
+                _collectionIdToName[collectionId] = collectionName;
 
-                try {
-                  final presetsSnapshot = await _firestore
-                      .collection('users')
-                      .doc(user.uid)
-                      .collection('collections')
-                      .doc(collectionId)
-                      .collection('presets')
-                      .get();
-                  
-                  for (final presetDoc in presetsSnapshot.docs) {
-                    final data = presetDoc.data();
-                    final preset = Preset.fromMap({
-                      ...data,
-                      'presetId': presetDoc.id,
-                      'collectionId': collectionId,
-                      'collection': collectionName,
-                      'prompt': (data['prompt'] ?? ''),
-                    });
-                    allPresets.add(preset);
-                  }
-                } catch (e) {
-                  final errorString = e.toString().toLowerCase();
-                  if (errorString.contains('permission-denied') || 
-                      errorString.contains('missing or insufficient permissions')) {
-                    print("⚠️ Permission denied reading presets for collection $collectionId - user may not have access");
-                  } else if (errorString.contains('internal') || 
-                             errorString.contains('server error')) {
-                    print("⚠️ Internal server error reading presets for collection $collectionId - collection may not exist yet");
-                  } else {
-                    print("❌ Error reading presets for collection $collectionId: $e");
-                  }
+                // If collection name changed, update existing cached presets' collection field.
+                final existingPresets = _livePresetsByCollectionId[collectionId];
+                if (existingPresets != null && existingPresets.isNotEmpty) {
+                  final updated = existingPresets
+                      .map((p) => p.collection == collectionName ? p : p.copyWith(collection: collectionName))
+                      .toList(growable: false);
+                  _livePresetsByCollectionId[collectionId] = updated;
                 }
-              }
 
-              _mergePresetsFromFirebase(allPresets);
-              _saveLocalCache();
-              _notifyDataChanged();
+                _presetSubListeners[collectionId] ??= _firestore
+                    .collection('users')
+                    .doc(user.uid)
+                    .collection('collections')
+                    .doc(collectionId)
+                    .collection('presets')
+                    .snapshots()
+                    .listen(
+                  (presetsSnapshot) async {
+                    try {
+                      // Verify user hasn't changed
+                      final currentUser2 = _authService.currentUser;
+                      if (currentUser2 == null || currentUser2.uid != user.uid) {
+                        return;
+                      }
+
+                      final name = _collectionIdToName[collectionId] ?? 'Default';
+                      final presets = <Preset>[];
+
+                      for (final presetDoc in presetsSnapshot.docs) {
+                        final data = presetDoc.data() as Map<String, dynamic>;
+                        presets.add(Preset.fromMap({
+                          ...data,
+                          'presetId': presetDoc.id,
+                          'collectionId': collectionId,
+                          'collection': name,
+                          'prompt': (data['prompt'] ?? ''),
+                          // Prefer explicit thumbnailPath; fall back to generatedImageUrls if needed.
+                          'thumbnailPath': data['thumbnailPath'] ?? data['generatedImageUrls'],
+                        }));
+                      }
+
+                      _livePresetsByCollectionId[collectionId] = presets;
+
+                      // Rebuild ordered list (stable ordering by collection order).
+                      final allPresets = <Preset>[];
+                      for (final cid in _collectionOrder) {
+                        final list = _livePresetsByCollectionId[cid];
+                        if (list != null && list.isNotEmpty) {
+                          allPresets.addAll(list);
+                        }
+                      }
+
+                      final changed = _applyFirebasePresets(allPresets);
+                      if (changed) {
+                        await _saveLocalCache();
+                        _notifyDataChanged();
+                      }
+                    } catch (e) {
+                      print("❌ Error processing presets sub-listener for collection $collectionId: $e");
+                    }
+                  },
+                  onError: (error) {
+                    print("❌ Presets sub-listener error for collection $collectionId: $error");
+                  },
+                );
+              }
             } catch (e) {
               final errorString = e.toString().toLowerCase();
               if (errorString.contains('permission-denied') || 
@@ -898,6 +967,43 @@ class PresetService {
             }
           },
         );
+  }
+
+  // Firestore is the source of truth (presets are not edited locally except via Firestore thumbnail updates).
+  // So we simply apply the Firebase list, and only notify UI if something meaningful actually changed.
+  bool _applyFirebasePresets(List<Preset> firebasePresets) {
+    // Build a stable signature to avoid redundant UI refreshes and cache writes.
+    final sig = _presetSignature(firebasePresets);
+    if (sig == _lastAppliedPresetsSignature) {
+      return false;
+    }
+    _lastAppliedPresetsSignature = sig;
+
+    final live = <Preset>[];
+    final post = <Preset>[];
+
+    for (final preset in firebasePresets) {
+      final presetType = _getPresetTypeFromPreset(preset);
+      if (presetType == 'post-delivery') {
+        post.add(preset);
+      } else {
+        live.add(preset);
+      }
+    }
+
+    _localPresets = live;
+    _localPostDeliveryPresets = post;
+    return true;
+  }
+
+  String _presetSignature(List<Preset> presets) {
+    // Don't include timestamps (many docs don't have lastModified and would cause churn).
+    final rows = presets
+        .where((p) => p.presetId.isNotEmpty)
+        .map((p) => '${p.presetId}|${p.collectionId}|${p.title}|${p.postProcessingUrl}|${p.generatedImageUrls}|${p.thumbnailPath}|${p.collection}|${p.prompt}')
+        .toList();
+    rows.sort();
+    return rows.join('||');
   }
 
   String _getPresetTypeFromPreset(Preset preset) {
@@ -1146,6 +1252,14 @@ class PresetService {
     
     await _collectionsListener?.cancel();
     await _presetsListener?.cancel();
+
+    for (final sub in _presetSubListeners.values) {
+      await sub.cancel();
+    }
+    _presetSubListeners.clear();
+    _livePresetsByCollectionId.clear();
+    _collectionIdToName.clear();
+    _collectionOrder = const [];
     
     _collectionsListener = null;
     _presetsListener = null;
@@ -1196,6 +1310,11 @@ class PresetService {
     _localCollections.clear();
     _localPostDeliveryPresets.clear();
     _localPostDeliveryCollections.clear();
+    _presetSubListeners.clear();
+    _livePresetsByCollectionId.clear();
+    _collectionIdToName.clear();
+    _collectionOrder = const [];
+    _lastAppliedPresetsSignature = '';
     _presetsLoadedFromFirebase = false;
     _collectionsLoadedFromFirebase = false;
     _postDeliveryPresetsLoadedFromFirebase = false;

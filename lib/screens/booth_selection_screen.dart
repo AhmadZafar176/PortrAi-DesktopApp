@@ -46,7 +46,9 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
   static const double maxWidth = 700.0;
   static const double gap = 80.0;
   static const double gapLandscape = 30.0;
-  static const double gapPortrait = 150.0;
+  static const double gapPortrait = 12.0;
+  static const double sidePaddingPortrait = 6.0;
+  static const double portraitHeightFactor = 1.32;
   static const double wheelSpeed = 0.28;
   static const int minDuration = 300;
   static const int maxDuration = 800;
@@ -108,14 +110,18 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
     final orientation = MediaQuery.of(context).orientation;
     
     if (orientation == Orientation.portrait) {
+      // Portrait: size cards so that 3 cards fit in the viewport (with gaps),
+      // while still allowing extra scroll padding so edge cards can be centered.
+      const visibleCols = 3;
+      final currentGap = _getGap();
+      final totalGaps = (visibleCols - 1) * currentGap;
+      final availableWidth = screenWidth - totalGaps - (sidePaddingPortrait * 2);
+      final calculatedWidth = availableWidth / visibleCols;
 
-
-      final screenHeight = MediaQuery.of(context).size.height;
-      final maxCardByWidth = screenWidth * 0.88;
-      final maxCardByHeight = screenHeight * 0.60;
-
-      _cardWidth = math.min(maxCardByWidth, maxCardByHeight);
-      _cardHeight = _cardWidth;
+      // Allow smaller cards in portrait to guarantee 3 fit.
+      _cardWidth = math.max(140.0, calculatedWidth);
+      // Slightly taller cards in portrait.
+      _cardHeight = _cardWidth * portraitHeightFactor;
     } else {
 
       const maxVisibleCols = 3;
@@ -486,7 +492,8 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
 
     appState.setStayMinimizedDuringCapture(true);
 
-    final preset = _currentPresets[_selectedIndex];
+    final safeIndex = _selectedIndex.clamp(0, _currentPresets.length - 1);
+    final preset = _currentPresets[safeIndex];
     await SessionService.saveSelectedPreset(preset, presetPassword: appState.presetPassword);
     if (!mounted) return;
 
@@ -920,7 +927,10 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
           scrollDirection: Axis.horizontal,
           physics: const ClampingScrollPhysics(),
           padding: EdgeInsets.symmetric(
-            horizontal: (MediaQuery.of(context).size.width - _cardWidth) / 2,
+            horizontal: math.max(
+              MediaQuery.of(context).orientation == Orientation.portrait ? sidePaddingPortrait : 0.0,
+              (MediaQuery.of(context).size.width - _cardWidth) / 2,
+            ),
           ),
           itemCount: _currentPresets.length,
           itemBuilder: (context, index) {
