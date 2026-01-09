@@ -51,7 +51,7 @@ class IPCService {
           final trimmed = line.trim();
           if (trimmed.isEmpty) continue;
           _handleIncomingJsonLine(trimmed, client, (requestId) {
-            currentRequestId = requestId;
+          currentRequestId = requestId;
           });
         }
       },
@@ -145,12 +145,12 @@ class IPCService {
               if (result['id'] == requestId && result['status'] == 'OK') {
                 if (!okCompleter.isCompleted) okCompleter.complete(true);
               }
-              if (result['id'] == requestId && result['status'] == 'DONE') {
-                _pendingRequests.remove(requestId)?.complete();
-                if (!completer.isCompleted) {
-                  completer.complete(true);
-                }
+            if (result['id'] == requestId && result['status'] == 'DONE') {
+              _pendingRequests.remove(requestId)?.complete();
+              if (!completer.isCompleted) {
+                completer.complete(true);
               }
+            }
             } catch (_) {
             }
           }

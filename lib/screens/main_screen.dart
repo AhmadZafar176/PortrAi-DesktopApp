@@ -1273,7 +1273,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
 
           if (!mounted) return;
           if (dialogShown && Navigator.of(context).canPop()) {
-            Navigator.pop(context);
+          Navigator.pop(context);
             dialogShown = false;
           }
           
@@ -1287,7 +1287,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
 
           if (!mounted) return;
           if (dialogShown && Navigator.of(context).canPop()) {
-            Navigator.pop(context);
+          Navigator.pop(context);
             dialogShown = false;
           }
           

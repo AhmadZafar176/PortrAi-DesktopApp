@@ -881,11 +881,11 @@ class PresetService {
                 }
 
                 _presetSubListeners[collectionId] ??= _firestore
-                    .collection('users')
-                    .doc(user.uid)
-                    .collection('collections')
-                    .doc(collectionId)
-                    .collection('presets')
+                      .collection('users')
+                      .doc(user.uid)
+                      .collection('collections')
+                      .doc(collectionId)
+                      .collection('presets')
                     .snapshots()
                     .listen(
                   (presetsSnapshot) async {
@@ -898,15 +898,15 @@ class PresetService {
 
                       final name = _collectionIdToName[collectionId] ?? 'Default';
                       final presets = <Preset>[];
-
-                      for (final presetDoc in presetsSnapshot.docs) {
+                  
+                  for (final presetDoc in presetsSnapshot.docs) {
                         final data = presetDoc.data() as Map<String, dynamic>;
                         presets.add(Preset.fromMap({
-                          ...data,
-                          'presetId': presetDoc.id,
-                          'collectionId': collectionId,
+                      ...data,
+                      'presetId': presetDoc.id,
+                      'collectionId': collectionId,
                           'collection': name,
-                          'prompt': (data['prompt'] ?? ''),
+                      'prompt': (data['prompt'] ?? ''),
                           // Prefer explicit thumbnailPath; fall back to generatedImageUrls if needed.
                           'thumbnailPath': data['thumbnailPath'] ?? data['generatedImageUrls'],
                         }));
@@ -920,13 +920,13 @@ class PresetService {
                         final list = _livePresetsByCollectionId[cid];
                         if (list != null && list.isNotEmpty) {
                           allPresets.addAll(list);
-                        }
-                      }
+                  }
+                }
 
                       final changed = _applyFirebasePresets(allPresets);
                       if (changed) {
                         await _saveLocalCache();
-                        _notifyDataChanged();
+              _notifyDataChanged();
                       }
                     } catch (e) {
                       print("❌ Error processing presets sub-listener for collection $collectionId: $e");

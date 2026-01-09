@@ -15,6 +15,22 @@ import '../models/collection.dart';
 import '../widgets/chevron_widget.dart';
 import '../services/thumbnail_cache_service.dart';
 
+class _SmoothPageScrollPhysics extends PageScrollPhysics {
+  const _SmoothPageScrollPhysics({super.parent});
+
+  @override
+  _SmoothPageScrollPhysics applyTo(ScrollPhysics? ancestor) {
+    return _SmoothPageScrollPhysics(parent: buildParent(ancestor));
+  }
+
+  @override
+  SpringDescription get spring => const SpringDescription(
+        mass: 0.95,
+        stiffness: 260.0,
+        damping: 30.0,
+      );
+}
+
 class BoothSelectionScreen extends StatefulWidget {
   const BoothSelectionScreen({super.key, this.collectionFilter});
 
@@ -32,6 +48,15 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
   List<Preset> _currentPresets = [];
   int _selectedIndex = 0;
   final ScrollController _scrollController = ScrollController();
+  final PageController _portraitPageController = PageController();
+  int _portraitPage = 0;
+  Timer? _portraitWheelTimer;
+  bool _portraitAnimating = false;
+  int? _portraitTargetPage;
+  bool _showPortraitScrollbar = false;
+  Timer? _portraitScrollbarTimer;
+  bool _portraitDragTriggered = false;
+  double _portraitDragDy = 0.0;
   final FocusNode _focusNode = FocusNode();
   Timer? _snapTimer;
   Timer? _coalesceTimer;
@@ -190,8 +215,117 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
     _donePollTimer?.cancel();
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
+    _portraitWheelTimer?.cancel();
+    _portraitScrollbarTimer?.cancel();
+    _portraitPageController.dispose();
     _focusNode.dispose();
     super.dispose();
+  }
+
+  int _portraitPageCount() {
+    if (_currentPresets.isEmpty) return 0;
+    return ((_currentPresets.length + 5) / 6).floor();
+  }
+
+  double _portraitTileHeight() {
+    // Card widget includes the image container (_cardHeight) plus title/label below it.
+    // Give enough room so the second row doesn't clip.
+    final caption = _hasPostDeliveryPreset ? 64.0 : 44.0;
+    return _cardHeight + caption;
+  }
+
+  void _bumpPortraitScrollbar() {
+    if (!mounted) return;
+    if (!_showPortraitScrollbar) {
+      setState(() {
+        _showPortraitScrollbar = true;
+      });
+    }
+    _portraitScrollbarTimer?.cancel();
+    _portraitScrollbarTimer = Timer(const Duration(milliseconds: 650), () {
+      if (!mounted) return;
+      if (_showPortraitScrollbar) {
+        setState(() {
+          _showPortraitScrollbar = false;
+        });
+      }
+    });
+  }
+
+  void _setPortraitPage(int page) {
+    final pageCount = _portraitPageCount();
+    if (pageCount <= 0) return;
+    final nextPage = page.clamp(0, pageCount - 1);
+    if (nextPage == _portraitPage) return;
+    setState(() {
+      _portraitPage = nextPage;
+      final startIdx = _portraitPage * 6;
+      if (_currentPresets.isNotEmpty) {
+        _selectedIndex = math.min(_currentPresets.length - 1, startIdx);
+      }
+    });
+  }
+
+  int _clampPortraitPage(int page) {
+    final pageCount = _portraitPageCount();
+    if (pageCount <= 0) return 0;
+    return page.clamp(0, pageCount - 1);
+  }
+
+  Duration _portraitAnimDuration({required int from, required int to}) {
+    final distance = (to - from).abs().clamp(1, 4);
+    final ms = (520 + (distance - 1) * 220).clamp(520, 1100);
+    return Duration(milliseconds: ms);
+  }
+
+  void _snapPortraitToNearestPage() {
+    if (!_portraitPageController.hasClients) return;
+    final raw = _portraitPageController.page ?? _portraitPage.toDouble();
+    final nearest = _clampPortraitPage(raw.round());
+    _setPortraitPage(nearest);
+    _portraitTargetPage = nearest;
+    unawaited(_runPortraitPageAnimationLoop());
+  }
+
+  Future<void> _runPortraitPageAnimationLoop() async {
+    if (_portraitAnimating) return;
+    if (!_portraitPageController.hasClients) return;
+    _portraitAnimating = true;
+    try {
+      while (mounted) {
+        final target = _portraitTargetPage;
+        if (target == null) break;
+
+        final currentPage = (_portraitPageController.page ?? _portraitPage.toDouble()).round();
+        final clampedTarget = _clampPortraitPage(target);
+        if (currentPage == clampedTarget) {
+          _portraitTargetPage = null;
+          break;
+        }
+
+        await _portraitPageController.animateToPage(
+          clampedTarget,
+          duration: _portraitAnimDuration(from: currentPage, to: clampedTarget),
+          curve: Curves.easeInOutCubic,
+        );
+      }
+    } finally {
+      _portraitAnimating = false;
+    }
+  }
+
+  Future<void> _scrollPortraitPage(int deltaPages) async {
+    final pageCount = _portraitPageCount();
+    if (pageCount <= 1) return;
+    final nextPage = (_portraitPage + deltaPages).clamp(0, pageCount - 1);
+    if (nextPage == _portraitPage) return;
+    _setPortraitPage(nextPage);
+    if (_portraitPageController.hasClients) {
+      _portraitTargetPage = nextPage;
+      // Fire-and-forget: if more scroll input arrives, target updates and the loop
+      // naturally continues, giving a cascade-like feel.
+      unawaited(_runPortraitPageAnimationLoop());
+    }
   }
 
   void _onScroll() {
@@ -671,15 +805,20 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
       focusNode: _focusNode,
       onKeyEvent: (KeyEvent event) {
         if (event is KeyDownEvent) {
+          final isPortrait = MediaQuery.of(context).orientation == Orientation.portrait;
           if (event.logicalKey == LogicalKeyboardKey.escape) {
             _handleEscKey();
-          } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+          } else if (isPortrait && (event.logicalKey == LogicalKeyboardKey.arrowDown || event.logicalKey == LogicalKeyboardKey.pageDown)) {
+            _scrollPortraitPage(1);
+          } else if (isPortrait && (event.logicalKey == LogicalKeyboardKey.arrowUp || event.logicalKey == LogicalKeyboardKey.pageUp)) {
+            _scrollPortraitPage(-1);
+          } else if (!isPortrait && event.logicalKey == LogicalKeyboardKey.arrowRight) {
             _scrollBy(1);
-          } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+          } else if (!isPortrait && event.logicalKey == LogicalKeyboardKey.arrowLeft) {
             _scrollBy(-1);
-          } else if (event.logicalKey == LogicalKeyboardKey.pageDown) {
+          } else if (!isPortrait && event.logicalKey == LogicalKeyboardKey.pageDown) {
             _scrollBy(3);
-          } else if (event.logicalKey == LogicalKeyboardKey.pageUp) {
+          } else if (!isPortrait && event.logicalKey == LogicalKeyboardKey.pageUp) {
             _scrollBy(-3);
           } else if (event.logicalKey == LogicalKeyboardKey.home) {
             _animateTo(0);
@@ -749,27 +888,58 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
                                     child: LayoutBuilder(
                                       builder: (context, constraints) {
                                         final double arrowTop = constraints.maxHeight / 2 - 22.0 - 10.0;
+                                        final pageCount = _portraitPageCount();
+                                        final bool showUpArrow = isPortrait && pageCount > 1 && _portraitPage > 0;
+                                        final bool showDownArrow = isPortrait && pageCount > 1 && _portraitPage < pageCount - 1;
+                                        final tileHeight = _portraitTileHeight();
+                                        final rowGap = _getGap();
+                                        final carouselHeight = tileHeight * 2 + rowGap;
+                                        final carouselTop = (constraints.maxHeight - carouselHeight) / 2;
+                                        const buttonSize = 44.0;
+                                        const buttonGap = 8.0;
+                                        final portraitButtonLeft = (constraints.maxWidth / 2 - buttonSize / 2)
+                                            .clamp(0.0, math.max(0.0, constraints.maxWidth - buttonSize))
+                                            .toDouble();
+                                        const upButtonNudge = 6.0;
+                                        final portraitUpButtonTop = (carouselTop - buttonSize - buttonGap - upButtonNudge)
+                                            .clamp(0.0, math.max(0.0, constraints.maxHeight - buttonSize))
+                                            .toDouble();
+                                        final portraitDownButtonTop = (carouselTop + carouselHeight + buttonGap)
+                                            .clamp(0.0, math.max(0.0, constraints.maxHeight - buttonSize))
+                                            .toDouble();
                                         return Stack(
                                           clipBehavior: Clip.none,
                                           children: [
                                             _buildPresetsCarousel(),
-                                            if (_showLeftArrow)
+                                            if (!isPortrait && _showLeftArrow)
                                               Positioned(
                                                 left: 8,
                                                 top: arrowTop,
                                                 child: Transform.translate(
                                                   offset: const Offset(0, -10),
-                                                  child: _buildArrowButton(true, () => _scrollBy(-1)),
+                                                  child: _buildArrowButton(_ArrowDirection.left, () => _scrollBy(-1)),
                                                 ),
                                               ),
-                                            if (_showRightArrow)
+                                            if (!isPortrait && _showRightArrow)
                                               Positioned(
                                                 right: 8,
                                                 top: arrowTop,
                                                 child: Transform.translate(
                                                   offset: const Offset(0, -10),
-                                                  child: _buildArrowButton(false, () => _scrollBy(1)),
+                                                  child: _buildArrowButton(_ArrowDirection.right, () => _scrollBy(1)),
                                                 ),
+                                              ),
+                                            if (showUpArrow)
+                                              Positioned(
+                                                left: portraitButtonLeft,
+                                                top: portraitUpButtonTop,
+                                                child: _buildArrowButton(_ArrowDirection.up, () => _scrollPortraitPage(-1)),
+                                              ),
+                                            if (showDownArrow)
+                                              Positioned(
+                                                left: portraitButtonLeft,
+                                                top: portraitDownButtonTop,
+                                                child: _buildArrowButton(_ArrowDirection.down, () => _scrollPortraitPage(1)),
                                               ),
                                           ],
                                         );
@@ -832,9 +1002,9 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
     );
   }
 
-  Widget _buildArrowButton(bool isLeft, VoidCallback onPressed) {
+  Widget _buildArrowButton(_ArrowDirection direction, VoidCallback onPressed) {
     return _HoverableArrowButton(
-      isLeft: isLeft,
+      direction: direction,
       onPressed: onPressed,
     );
   }
@@ -906,6 +1076,122 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
           ),
         ),
       );
+    }
+
+    final isPortrait = MediaQuery.of(context).orientation == Orientation.portrait;
+    if (isPortrait) {
+      final gap = _getGap();
+      final groupWidth = _cardWidth * 3 + gap * 2;
+      final pageCount = _portraitPageCount();
+      final tileHeight = _portraitTileHeight();
+
+      return Center(
+        child: Listener(
+          onPointerSignal: (signal) {
+            if (signal is PointerScrollEvent) {
+              _bumpPortraitScrollbar();
+              if (_portraitWheelTimer?.isActive ?? false) return;
+
+              final dy = signal.scrollDelta.dy;
+              if (dy.abs() < 0.5) return;
+
+              _scrollPortraitPage(dy > 0 ? 1 : -1);
+              _portraitWheelTimer = Timer(const Duration(milliseconds: 120), () {});
+            }
+          },
+          child: SizedBox(
+            width: groupWidth,
+            height: tileHeight * 2 + gap,
+            child: RawScrollbar(
+              controller: _portraitPageController,
+              thumbVisibility: _showPortraitScrollbar,
+              thickness: 3,
+              radius: const Radius.circular(8),
+              fadeDuration: const Duration(milliseconds: 200),
+              timeToFade: const Duration(milliseconds: 650),
+              thumbColor: const Color(0x66FFFFFF),
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onVerticalDragStart: (_) {
+                  _bumpPortraitScrollbar();
+                  _portraitDragTriggered = false;
+                  _portraitDragDy = 0.0;
+                },
+                onVerticalDragUpdate: (details) {
+                  _bumpPortraitScrollbar();
+                  if (_portraitDragTriggered) return;
+                  _portraitDragDy += details.delta.dy;
+                  if (_portraitDragDy.abs() >= 28.0) {
+                    _portraitDragTriggered = true;
+                    _scrollPortraitPage(_portraitDragDy > 0 ? -1 : 1);
+                  }
+                },
+                onVerticalDragEnd: (details) {
+                  _bumpPortraitScrollbar();
+                  if (_portraitDragTriggered) return;
+                  final vy = details.primaryVelocity ?? details.velocity.pixelsPerSecond.dy;
+                  if (vy.abs() < 140) return;
+                  _scrollPortraitPage(vy > 0 ? -1 : 1);
+                },
+                child: NotificationListener<ScrollNotification>(
+                  onNotification: (n) {
+                    if (n is ScrollStartNotification || n is ScrollUpdateNotification) {
+                      _bumpPortraitScrollbar();
+                    }
+                    return false;
+                  },
+                  child: PageView.builder(
+                    controller: _portraitPageController,
+                    scrollDirection: Axis.vertical,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: pageCount,
+                    onPageChanged: (idx) => _setPortraitPage(idx),
+                    itemBuilder: (context, pageIdx) {
+                      final start = pageIdx * 6;
+                      final end = math.min(start + 6, _currentPresets.length);
+
+                    Widget slot(int absoluteIndex) {
+                      if (absoluteIndex < end) {
+                        return _buildPresetCard(_currentPresets[absoluteIndex], absoluteIndex);
+                      }
+                      return SizedBox(width: _cardWidth, height: tileHeight);
+                    }
+
+                    Widget row(int rowStart) {
+                      final a = rowStart;
+                      final b = rowStart + 1;
+                      final c = rowStart + 2;
+                      return Row(
+                        mainAxisAlignment: MainAxisAlignment.start,
+                        children: [
+                          slot(a),
+                          SizedBox(width: gap),
+                          slot(b),
+                          SizedBox(width: gap),
+                          slot(c),
+                        ],
+                      );
+                    }
+
+                    return Align(
+                      alignment: Alignment.topCenter,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          row(start),
+                          SizedBox(height: gap),
+                          row(start + 3),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
     }
 
     return Center(
@@ -1093,12 +1379,14 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
   }
 }
 
+enum _ArrowDirection { left, right, up, down }
+
 class _HoverableArrowButton extends StatefulWidget {
-  final bool isLeft;
+  final _ArrowDirection direction;
   final VoidCallback onPressed;
 
   const _HoverableArrowButton({
-    required this.isLeft,
+    required this.direction,
     required this.onPressed,
   });
 
@@ -1111,6 +1399,13 @@ class _HoverableArrowButtonState extends State<_HoverableArrowButton> {
 
   @override
   Widget build(BuildContext context) {
+    final double angle = switch (widget.direction) {
+      _ArrowDirection.left => math.pi / 2,
+      _ArrowDirection.right => -math.pi / 2,
+      _ArrowDirection.up => 0.0,
+      _ArrowDirection.down => 0.0,
+    };
+    final bool isUpward = widget.direction == _ArrowDirection.up;
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _isHovered = true),
@@ -1130,14 +1425,14 @@ class _HoverableArrowButtonState extends State<_HoverableArrowButton> {
           ),
           child: Center(
             child: Transform.rotate(
-              angle: widget.isLeft ? math.pi / 2 : -math.pi / 2,
+              angle: angle,
               alignment: Alignment.center,
-              child: const SizedBox(
+              child: SizedBox(
                 width: 18,
                 height: 18,
                 child: Center(
                   child: ChevronWidget(
-                    isUpward: false,
+                    isUpward: isUpward,
                     color: Color(0xFF7C3AED),
                     size: 18,
                   ),

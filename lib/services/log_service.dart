@@ -57,22 +57,22 @@ class LogService {
 
   static Future<void> log(String message) async {
     _writeQueue = _writeQueue.then((_) async {
-      try {
+    try {
         if (_logFilePath == null || !_initialized) {
-          await init();
-        }
+        await init();
+      }
         if (_logFilePath == null) return;
-
-        await _rotateLogIfNeeded();
-
-        final ts = DateTime.now().toIso8601String();
+      
+      await _rotateLogIfNeeded();
+      
+      final ts = DateTime.now().toIso8601String();
         await File(_logFilePath!).writeAsString(
           '[$ts] $message\n',
           mode: FileMode.append,
           flush: true,
         );
-      } catch (_) {
-      }
+    } catch (_) {
+    }
     });
     return _writeQueue;
   }
