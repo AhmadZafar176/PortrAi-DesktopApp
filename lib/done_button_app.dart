@@ -28,7 +28,12 @@ class _DoneButtonAppState extends State<DoneButtonApp> {
     try {
       final display = await screenRetriever.getPrimaryDisplay();
       x = (display.size.width - width - 16).toDouble();
-    } catch (_) {}
+    } catch (e) {
+      assert(() {
+        print('⚠️ DoneButtonApp: failed to get primary display: $e');
+        return true;
+      }());
+    }
 
     final options = WindowOptions(
       size: const Size(width, height),
@@ -55,7 +60,12 @@ class _DoneButtonAppState extends State<DoneButtonApp> {
         body: Center(
           child: ElevatedButton(
             onPressed: () async {
-              await SessionService.signalDonePressed();
+              final token = await SessionService.getActiveSessionToken();
+              if (token != null) {
+                await SessionService.signalDonePressedToken(token);
+              } else {
+                await SessionService.signalDonePressed();
+              }
               await LogService.log('DoneButton pressed');
               exit(0);
             },

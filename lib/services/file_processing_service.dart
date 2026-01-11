@@ -50,7 +50,6 @@ class FileProcessingService {
     BuildContext context,
     String? externalRequestId,
   ) async {
-    // Null safety check
     if (filePaths.isEmpty) {
       print('ΓÜá∩╕Å No files provided for processing');
       if (externalRequestId != null) {
@@ -85,7 +84,6 @@ class FileProcessingService {
       return;
     }
 
-    // Null safety checks
     if (appState.presets.isEmpty) {
       try {
         _showErrorDialog(context, "Please add a preset first.");
@@ -106,7 +104,6 @@ class FileProcessingService {
       return;
     }
     
-    // Additional null safety check
     final selectedPreset = appState.presets[appState.selectedIndex];
     if (selectedPreset.presetId.isEmpty) {
       try {
@@ -573,8 +570,12 @@ class FileProcessingService {
             _pendingResponseTimestamps[requestId] = DateTime.now();
           } else if (contentType.startsWith('application/json') || contentType.contains('json')) {
             try {
-              _pendingResponses[requestId] =
-                  jsonDecode(response.body) as Map<String, dynamic>;
+              final decoded = jsonDecode(response.body);
+              if (decoded is Map) {
+                _pendingResponses[requestId] = decoded.cast<String, dynamic>();
+              } else {
+                throw const FormatException('JSON response is not an object');
+              }
               _pendingResponseTimestamps[requestId] = DateTime.now();
               print('≡ƒôä JSON Response parsed');
             } on FormatException catch (e) {
@@ -597,8 +598,12 @@ class FileProcessingService {
           } else {
 
             try {
-              _pendingResponses[requestId] =
-                  jsonDecode(response.body) as Map<String, dynamic>;
+              final decoded = jsonDecode(response.body);
+              if (decoded is Map) {
+                _pendingResponses[requestId] = decoded.cast<String, dynamic>();
+              } else {
+                throw const FormatException('Fallback JSON response is not an object');
+              }
               _pendingResponseTimestamps[requestId] = DateTime.now();
               print('≡ƒôä Fallback JSON Response parsed');
             } on FormatException catch (_) {

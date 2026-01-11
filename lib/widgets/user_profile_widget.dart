@@ -1,6 +1,7 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_state.dart';
+import '../services/thumbnail_cache_service.dart';
 import 'chevron_widget.dart';
 
 class UserProfileWidget extends StatefulWidget {
@@ -23,7 +24,6 @@ class _UserProfileWidgetState extends State<UserProfileWidget> {
         }
 
         return GestureDetector(
-          // Close menu when tapping outside (this will catch taps outside the Column)
           onTap: () {
             if (_isMenuOpen) {
               setState(() {
@@ -33,9 +33,7 @@ class _UserProfileWidgetState extends State<UserProfileWidget> {
           },
           behavior: HitTestBehavior.translucent,
           child: GestureDetector(
-            // Stop propagation for taps inside the menu/button area
             onTap: () {
-              // Do nothing - this prevents the outer GestureDetector from firing
             },
             child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -125,7 +123,7 @@ class _UserProfileWidgetState extends State<UserProfileWidget> {
               leading: AnimatedContainer(
                 duration: const Duration(milliseconds: 150),
                 child: Text(
-                  '🚪',
+                  'ðŸšª',
                   style: TextStyle(
                     fontSize: 20,
                     color: isHovered 
@@ -228,7 +226,9 @@ class _UserProfileWidgetState extends State<UserProfileWidget> {
                         ),
                       ),
                       child: ClipOval(
-                        child: appState.currentUser?.photoURL != null
+                        child: (appState.currentUser?.photoURL != null &&
+                                ThumbnailCacheService.instance
+                                    .isNetworkImageUrl(appState.currentUser!.photoURL!))
                             ? Image.network(
                                 _getWebCompatibleImageUrl(appState.currentUser!.photoURL!),
                                 width: 40,
@@ -238,8 +238,8 @@ class _UserProfileWidgetState extends State<UserProfileWidget> {
                                   'Access-Control-Allow-Origin': '*',
                                 },
                                 errorBuilder: (context, error, stackTrace) {
-                                  print('🖼️ Image loading error: $error');
-                                  print('🖼️ Stack trace: $stackTrace');
+                                  print('ðŸ–¼ï¸ Image loading error: $error');
+                                  print('ðŸ–¼ï¸ Stack trace: $stackTrace');
                                   return _buildFallbackAvatar(appState.currentUser!);
                                 },
                               )
@@ -355,7 +355,7 @@ class _UserProfileWidgetState extends State<UserProfileWidget> {
   }
 
   String _getWebCompatibleImageUrl(String photoURL) {
-    print('🖼️ Original photo URL: $photoURL');
+    print('ðŸ–¼ï¸ Original photo URL: $photoURL');
 
 
     if (photoURL.contains('googleusercontent.com')) {
@@ -366,7 +366,7 @@ class _UserProfileWidgetState extends State<UserProfileWidget> {
       }
     }
     
-    print('🖼️ Web-compatible photo URL: $photoURL');
+    print('ðŸ–¼ï¸ Web-compatible photo URL: $photoURL');
     return photoURL;
   }
 }

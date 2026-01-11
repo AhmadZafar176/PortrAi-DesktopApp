@@ -17,14 +17,23 @@ class Collection {
   });
 
   factory Collection.fromMap(Map<String, dynamic> map) {
+    final rawPresets = map['presets'];
+    final presets = <Preset>[];
+    if (rawPresets is List) {
+      for (final p in rawPresets) {
+        if (p is Map<String, dynamic>) {
+          presets.add(Preset.fromMap(p));
+        } else if (p is Map) {
+          presets.add(Preset.fromMap(p.cast<String, dynamic>()));
+        }
+      }
+    }
     return Collection(
       id: map['id'] ?? "",
       name: map['name'] ?? "",
       description: map['description'] ?? "",
       thumbnailPath: map['thumbnailPath'] ?? "",
-      presets: (map['presets'] as List<dynamic>?)
-          ?.map((preset) => Preset.fromMap(preset as Map<String, dynamic>))
-          .toList() ?? [],
+      presets: presets,
     );
   }
 

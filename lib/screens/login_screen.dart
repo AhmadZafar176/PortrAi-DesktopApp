@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
@@ -413,7 +413,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _signInWithGoogle() async {
-    print('🔍 Google Sign-In button clicked!');
+    print('ðŸ” Google Sign-In button clicked!');
     
     setState(() {
       _isLoading = true;
@@ -421,22 +421,19 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      print('🔍 Calling appState.signInWithGoogle()...');
+      print('ðŸ” Calling appState.signInWithGoogle()...');
       final appState = Provider.of<AppState>(context, listen: false);
       await appState.signInWithGoogle();
-      print('🔍 Google Sign-In completed successfully!');
+      print('ðŸ” Google Sign-In completed successfully!');
 
-      // Wait for userStream to fire and navigation to start
-      // Then bring app to foreground after navigation completes
       await Future.delayed(const Duration(milliseconds: 600));
       
-      // Only bring to foreground if widget is still mounted
       if (mounted) {
         await _bringAppToForeground();
       }
 
     } catch (e) {
-      print('🔍 Google Sign-In error: $e');
+      print('ðŸ” Google Sign-In error: $e');
       setState(() {
         String errorMsg = e.toString().replaceFirst('Exception: ', '');
         if (errorMsg.contains('People API has not been used')) {
@@ -462,7 +459,7 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       if (!mounted) return;
       
-      print('🔍 Bringing app window to foreground...');
+      print('ðŸ” Bringing app window to foreground...');
       
       await windowManager.setAlwaysOnTop(true);
       alwaysOnTopSet = true;
@@ -480,14 +477,14 @@ class _LoginScreenState extends State<LoginScreen> {
         alwaysOnTopSet = false;
       }
       
-      print('🔍 App window brought to foreground successfully');
+      print('ðŸ” App window brought to foreground successfully');
     } catch (e) {
-      print('🔍 Error bringing app to foreground: $e');
+      print('ðŸ” Error bringing app to foreground: $e');
       if (alwaysOnTopSet && mounted) {
         try {
           await windowManager.setAlwaysOnTop(false);
         } catch (_) {
-          print('🔍 Error resetting alwaysOnTop');
+          print('ðŸ” Error resetting alwaysOnTop');
         }
       }
     }

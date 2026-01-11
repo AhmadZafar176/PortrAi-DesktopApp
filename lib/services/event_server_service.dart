@@ -1,4 +1,4 @@
-import 'dart:io';
+﻿import 'dart:io';
 
 import 'log_service.dart';
 import 'session_service.dart';
@@ -38,17 +38,32 @@ class EventServerService {
       await LogService.log("$ts { ${logParts.join(', ')} }").timeout(
         const Duration(seconds: 5),
         onTimeout: () {
-          print('⚠️ LogService.log timeout');
+          print('âš ï¸ LogService.log timeout');
         },
       );
 
       if (eventType == 'session_end') {
-        await SessionService.signalDonePressed().timeout(
-          const Duration(seconds: 5),
-          onTimeout: () {
-            print('⚠️ SessionService.signalDonePressed timeout');
-          },
-        );
+        final token = await SessionService.getActiveSessionToken();
+        if (token != null) {
+          final phase = await SessionService.getActiveSessionPhase();
+          if (phase == SessionService.phaseWaitingSessionEnd) {
+            await SessionService.signalDonePressedToken(token).timeout(
+              const Duration(seconds: 5),
+              onTimeout: () {
+                print('âš ï¸ SessionService.signalDonePressedToken timeout');
+              },
+            );
+          } else {
+            await LogService.log("EventServer: ignored session_end (phase='$phase')");
+          }
+        } else {
+          await SessionService.signalDonePressed().timeout(
+            const Duration(seconds: 5),
+            onTimeout: () {
+              print('âš ï¸ SessionService.signalDonePressed timeout');
+            },
+          );
+        }
       }
       
       if (!responseClosed) {
@@ -63,7 +78,7 @@ class EventServerService {
             ..statusCode = HttpStatus.internalServerError
             ..write('ERROR: $e');
         } catch (_) {
-          print('⚠️ Failed to write error response');
+          print('âš ï¸ Failed to write error response');
         }
       }
     } finally {
@@ -72,12 +87,12 @@ class EventServerService {
           await req.response.close().timeout(
             const Duration(seconds: 2),
             onTimeout: () {
-              print('⚠️ Response close timeout');
+              print('âš ï¸ Response close timeout');
             },
           );
           responseClosed = true;
         } catch (e) {
-          print('⚠️ Error closing response: $e');
+          print('âš ï¸ Error closing response: $e');
         }
       }
     }

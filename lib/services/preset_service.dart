@@ -1,4 +1,4 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'dart:io';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -42,13 +42,11 @@ class PresetService {
   StreamSubscription<QuerySnapshot>? _presetsListener;
   bool _isListening = false;
 
-  // Real-time per-collection presets listeners (needed so preset add/update/delete is reflected immediately).
   final Map<String, StreamSubscription<QuerySnapshot>> _presetSubListeners = {};
   final Map<String, List<Preset>> _livePresetsByCollectionId = {};
   final Map<String, String> _collectionIdToName = {};
   List<String> _collectionOrder = const [];
 
-  // Avoid unnecessary UI refreshes / image widget rebuilds when nothing meaningful changed.
   String _lastAppliedPresetsSignature = '';
 
   final Set<String> _editingPresets = <String>{};
@@ -68,10 +66,8 @@ class PresetService {
 
     print('PresetService:initialize');
     
-    // Check for user change BEFORE loading cache to avoid loading wrong user's data
     final user = _authService.currentUser;
     if (user == null) {
-      // No user signed in, clear everything
       _currentUserId = null;
       _localPresets.clear();
       _localCollections.clear();
@@ -80,46 +76,53 @@ class PresetService {
       return;
     }
     
-    // Check if user has changed - if so, clear everything first
     final userChanged = _currentUserId != null && _currentUserId != user.uid;
     if (userChanged) {
-      print("🔄 User changed from '$_currentUserId' to '${user.uid}', clearing old data");
-      // Stop old listeners before switching users
+      assert(() {
+        print("ðŸ”„ User changed from '$_currentUserId' to '${user.uid}', clearing old data");
+        return true;
+      }());
       await stopRealtimeListeners();
       _initialSyncCompleted = false;
       _lastFirebaseSync = null;
       _currentUserId = user.uid;
-      // Clear local data when user changes - don't load old cache
       _localPresets.clear();
       _localCollections.clear();
       _localPostDeliveryPresets.clear();
       _localPostDeliveryCollections.clear();
     } else if (_currentUserId == null) {
-      // First time setting user
       _currentUserId = user.uid;
     }
     
-    // Only load cache if user hasn't changed (to avoid loading wrong user's data)
     if (!userChanged) {
       await _loadFromLocalCache();
-      print("📁 Loaded data from local cache");
+      assert(() {
+        print("ðŸ“ Loaded data from local cache");
+        return true;
+      }());
     } else {
-      print("📁 Skipping cache load - user changed, will fetch fresh data");
+      assert(() {
+        print("ðŸ“ Skipping cache load - user changed, will fetch fresh data");
+        return true;
+      }());
     }
     
     await _loadUserDataFromFirebase();
     
-    // Start listeners - if permission denied, retry after a delay
     await _startRealtimeListeners();
     
-    // If listeners didn't start due to permission error, retry after a delay
-    // This handles cases where Firebase Auth token hasn't propagated yet
     if (!_isListening) {
-      print("⏳ Waiting before retrying listener setup...");
+      assert(() {
+        print("â³ Waiting before retrying listener setup...");
+        return true;
+      }());
       await Future.delayed(const Duration(seconds: 2));
       final retryUser = _authService.currentUser;
       if (retryUser != null && retryUser.uid == user.uid) {
-        print("🔄 Retrying listener setup...");
+        assert(() {
+          print("ðŸ”„ Retrying listener setup...");
+          return true;
+        }());
         await _startRealtimeListeners();
       }
     }
@@ -131,9 +134,8 @@ class PresetService {
 
     final currentTime = DateTime.now();
     
-    // Verify user hasn't changed (should already be checked in initialize, but double-check)
     if (_currentUserId != null && _currentUserId != user.uid) {
-      print("⚠️ User mismatch detected in _loadUserDataFromFirebase - aborting");
+      print("âš ï¸ User mismatch detected in _loadUserDataFromFirebase - aborting");
       return;
     }
     
@@ -141,22 +143,25 @@ class PresetService {
       _currentUserId = user.uid;
     }
 
-    // Force sync if initial sync not completed (includes user change case), otherwise check if sync is needed
     final needsSync = !_initialSyncCompleted || 
                      _lastFirebaseSync == null ||
                      currentTime.difference(_lastFirebaseSync!) > _firebaseSyncInterval;
 
     if (needsSync) {
-      print("🔄 Performing Firebase sync...");
+      assert(() {
+        print("ðŸ”„ Performing Firebase sync...");
+        return true;
+      }());
       await _performFirebaseSync();
       _initialSyncCompleted = true;
       _lastFirebaseSync = currentTime;
       await LogService.log('PresetService: Firebase sync complete');
-      // Notify that data has changed so UI can refresh
       _notifyDataChanged();
     } else {
-      print("🚀 Using cached data, Firebase sync not needed");
-      // Even if using cache, notify to ensure UI is updated
+      assert(() {
+        print("ðŸš€ Using cached data, Firebase sync not needed");
+        return true;
+      }());
       _notifyDataChanged();
     }
   }
@@ -167,21 +172,24 @@ class PresetService {
       await _fetchUserCollections();
       
       await _saveLocalCache();
-      print("✅ Firebase sync completed successfully");
+      await LogService.log(
+        "Firebase sync completed successfully (livePresets=${_localPresets.length}, postPresets=${_localPostDeliveryPresets.length}, collections=${_localCollections.length})",
+      );
+      assert(() {
+        print("âœ… Firebase sync completed successfully");
+        return true;
+      }());
     } catch (e) {
       final errorString = e.toString().toLowerCase();
       if (errorString.contains('permission-denied') || 
           errorString.contains('missing or insufficient permissions')) {
-        print("⚠️ Permission denied during sync - user may not be fully authenticated yet: $e");
-        // Don't throw - use local cache
+        print("âš ï¸ Permission denied during sync - user may not be fully authenticated yet: $e");
       } else if (errorString.contains('internal') || 
                  errorString.contains('server error')) {
-        print("⚠️ Internal server error during sync - user document may not exist yet (normal for new users): $e");
-        // Don't throw - use local cache (which will be empty for new users)
+        print("âš ï¸ Internal server error during sync - user document may not exist yet (normal for new users): $e");
       } else {
-        print("❌ Firebase sync failed: $e, using local cache");
+        print("âŒ Firebase sync failed: $e, using local cache");
       }
-      // Never throw - always use local cache as fallback
     }
   }
 
@@ -196,27 +204,28 @@ class PresetService {
       await _fetchAllPresetsFromCollections(user.uid);
 
       _presetsLoadedFromFirebase = true;
-      print("✅ Loaded ${_localPresets.length} live presets and ${_localPostDeliveryPresets.length} post-delivery presets");
+      assert(() {
+        print("âœ… Loaded ${_localPresets.length} live presets and ${_localPostDeliveryPresets.length} post-delivery presets");
+        return true;
+      }());
     } catch (e) {
       final errorString = e.toString().toLowerCase();
       if (errorString.contains('permission-denied') || 
           errorString.contains('missing or insufficient permissions')) {
-        print("⚠️ Permission denied fetching presets - user may not be fully authenticated yet: $e");
-        // Don't throw - this will be retried when listeners start
+        print("âš ï¸ Permission denied fetching presets - user may not be fully authenticated yet: $e");
       } else {
-        print("❌ Error fetching presets: $e");
+        print("âŒ Error fetching presets: $e");
       }
     }
   }
 
   Future<void> _fetchAllPresetsFromCollections(String userId) async {
     try {
-      // First check if user document exists - if not, user is new and has no data
       final userDocRef = _firestore.collection('users').doc(userId);
       final userDocSnapshot = await userDocRef.get();
       
       if (!userDocSnapshot.exists) {
-        print("📁 User document doesn't exist yet - this is normal for new users");
+        print("ðŸ“ User document doesn't exist yet - this is normal for new users");
         _localPresets.clear();
         _localPostDeliveryPresets.clear();
         return;
@@ -224,9 +233,8 @@ class PresetService {
       
       final collectionsSnapshot = await userDocRef.collection('collections').get();
       
-      // If no collections exist, that's fine - user just hasn't created any yet
       if (collectionsSnapshot.docs.isEmpty) {
-        print("📁 No collections found for user - this is normal for new users");
+        print("ðŸ“ No collections found for user - this is normal for new users");
         _localPresets.clear();
         _localPostDeliveryPresets.clear();
         return;
@@ -237,7 +245,10 @@ class PresetService {
         final collectionName = collectionData['name'] ?? 'Default';
         final collectionId = collectionDoc.id;
         
-        print("🔍 Fetching presets from collection: $collectionName");
+        assert(() {
+          print("ðŸ” Fetching presets from collection: $collectionName");
+          return true;
+        }());
 
         final presetsSnapshot = await collectionDoc.reference.collection('presets').get();
         
@@ -259,22 +270,33 @@ class PresetService {
           });
 
           final presetType = presetData['presetType'] ?? 'nano-banana';
-          print("📄 Preset '${preset.title}' has presetType: $presetType");
-          print("   generatedImageUrls: ${preset.generatedImageUrls}");
+          assert(() {
+            print("ðŸ“„ Preset '${preset.title}' has presetType: $presetType");
+            return true;
+          }());
           
           if (presetType == 'post-delivery') {
             _localPostDeliveryPresets.add(preset);
-            print("✅ Added to POST-DELIVERY presets");
+            assert(() {
+              print("âœ… Added to POST-DELIVERY presets");
+              return true;
+            }());
           } else {
             _localPresets.add(preset);
-            print("✅ Added to LIVE presets");
+            assert(() {
+              print("âœ… Added to LIVE presets");
+              return true;
+            }());
           }
         }
       }
       
-      print("✅ Fetched ${_localPresets.length} LIVE presets and ${_localPostDeliveryPresets.length} POST-DELIVERY presets from collections");
+      assert(() {
+        print("âœ… Fetched ${_localPresets.length} LIVE presets and ${_localPostDeliveryPresets.length} POST-DELIVERY presets from collections");
+        return true;
+      }());
     } catch (e) {
-      print("❌ Error fetching presets from collections: $e");
+      print("âŒ Error fetching presets from collections: $e");
     }
   }
 
@@ -291,27 +313,28 @@ class PresetService {
       await _categorizeCollectionsByPresetType();
 
       _collectionsLoadedFromFirebase = true;
-      print("✅ Loaded ${_localCollections.length} live collections and ${_localPostDeliveryCollections.length} post-delivery collections");
+      assert(() {
+        print("âœ… Loaded ${_localCollections.length} live collections and ${_localPostDeliveryCollections.length} post-delivery collections");
+        return true;
+      }());
     } catch (e) {
       final errorString = e.toString().toLowerCase();
       if (errorString.contains('permission-denied') || 
           errorString.contains('missing or insufficient permissions')) {
-        print("⚠️ Permission denied fetching collections - user may not be fully authenticated yet: $e");
-        // Don't throw - this will be retried when listeners start
+        print("âš ï¸ Permission denied fetching collections - user may not be fully authenticated yet: $e");
       } else {
-        print("❌ Error fetching collections: $e");
+        print("âŒ Error fetching collections: $e");
       }
     }
   }
 
   Future<void> _fetchAllCollections(String userId) async {
     try {
-      // First check if user document exists - if not, user is new and has no data
       final userDocRef = _firestore.collection('users').doc(userId);
       final userDocSnapshot = await userDocRef.get();
       
       if (!userDocSnapshot.exists) {
-        print("📁 User document doesn't exist yet - this is normal for new users");
+        print("ðŸ“ User document doesn't exist yet - this is normal for new users");
         _localCollections.clear();
         _localPostDeliveryCollections.clear();
         return;
@@ -319,7 +342,6 @@ class PresetService {
       
       final collectionsSnapshot = await userDocRef.collection('collections').get();
       
-      // Clear existing collections before adding new ones
       _localCollections.clear();
       _localPostDeliveryCollections.clear();
 
@@ -335,17 +357,19 @@ class PresetService {
         _localPostDeliveryCollections.add(collection);
       }
       
-      print("✅ Fetched ${_localCollections.length} collections from Firebase");
+      assert(() {
+        print("âœ… Fetched ${_localCollections.length} collections from Firebase");
+        return true;
+      }());
     } catch (e) {
       final errorString = e.toString().toLowerCase();
       if (errorString.contains('permission-denied') || 
           errorString.contains('missing or insufficient permissions')) {
-        print("⚠️ Permission denied fetching collections - user may not be fully authenticated yet: $e");
-        // Return empty list - user document might not exist yet or auth not ready
+        print("âš ï¸ Permission denied fetching collections - user may not be fully authenticated yet: $e");
         _localCollections.clear();
         _localPostDeliveryCollections.clear();
       } else {
-        print("❌ Error fetching collections: $e");
+        print("âŒ Error fetching collections: $e");
       }
     }
   }
@@ -389,7 +413,7 @@ class PresetService {
       }
 
     } catch (e) {
-      print("❌ Error categorizing collections: $e");
+      print("âŒ Error categorizing collections: $e");
     }
   }
 
@@ -413,9 +437,9 @@ class PresetService {
           .doc(collectionId)
           .set(collectionData);
 
-      print("✅ Created collection '$collectionName' with ID '$collectionId' in Firebase");
+      print("âœ… Created collection '$collectionName' with ID '$collectionId' in Firebase");
     } catch (e) {
-      print("❌ Error creating collection in Firebase: $e");
+      print("âŒ Error creating collection in Firebase: $e");
       rethrow;
     }
   }
@@ -495,7 +519,7 @@ class PresetService {
         .doc(preset.presetId)
         .set(presetData);
         
-    print("✅ Preset '${preset.title.isNotEmpty ? preset.title : preset.name}' (type: $presetType) saved to Firebase collections/$collectionId/presets/${preset.presetId}");
+    print("âœ… Preset '${preset.title.isNotEmpty ? preset.title : preset.name}' (type: $presetType) saved to Firebase collections/$collectionId/presets/${preset.presetId}");
   }
 
 
@@ -574,7 +598,6 @@ class PresetService {
           break;
         }
       }
-      // Keep signature in sync so the subsequent Firestore snapshot doesn't cause a redundant UI refresh.
       _lastAppliedPresetsSignature = _presetSignature([
         ..._localPresets,
         ..._localPostDeliveryPresets,
@@ -624,26 +647,46 @@ class PresetService {
 
     final presetsString = prefs.getString('local_presets');
     if (presetsString != null) {
-      final presetsJson = jsonDecode(presetsString) as List;
-      _localPresets = presetsJson.map((json) => Preset.fromJson(json)).toList();
+      final decoded = jsonDecode(presetsString);
+      if (decoded is List) {
+        _localPresets = decoded
+            .whereType<Map>()
+            .map((m) => Preset.fromJson(m.cast<String, dynamic>()))
+            .toList();
+      }
     }
 
     final collectionsString = prefs.getString('local_collections');
     if (collectionsString != null) {
-      final collectionsJson = jsonDecode(collectionsString) as List;
-      _localCollections = collectionsJson.map((json) => Collection.fromJson(json)).toList();
+      final decoded = jsonDecode(collectionsString);
+      if (decoded is List) {
+        _localCollections = decoded
+            .whereType<Map>()
+            .map((m) => Collection.fromJson(m.cast<String, dynamic>()))
+            .toList();
+      }
     }
 
     final postDeliveryPresetsString = prefs.getString('local_post_delivery_presets');
     if (postDeliveryPresetsString != null) {
-      final postDeliveryPresetsJson = jsonDecode(postDeliveryPresetsString) as List;
-      _localPostDeliveryPresets = postDeliveryPresetsJson.map((json) => Preset.fromJson(json)).toList();
+      final decoded = jsonDecode(postDeliveryPresetsString);
+      if (decoded is List) {
+        _localPostDeliveryPresets = decoded
+            .whereType<Map>()
+            .map((m) => Preset.fromJson(m.cast<String, dynamic>()))
+            .toList();
+      }
     }
 
     final postDeliveryCollectionsString = prefs.getString('local_post_delivery_collections');
     if (postDeliveryCollectionsString != null) {
-      final postDeliveryCollectionsJson = jsonDecode(postDeliveryCollectionsString) as List;
-      _localPostDeliveryCollections = postDeliveryCollectionsJson.map((json) => Collection.fromJson(json)).toList();
+      final decoded = jsonDecode(postDeliveryCollectionsString);
+      if (decoded is List) {
+        _localPostDeliveryCollections = decoded
+            .whereType<Map>()
+            .map((m) => Collection.fromJson(m.cast<String, dynamic>()))
+            .toList();
+      }
     }
   }
 
@@ -654,9 +697,9 @@ class PresetService {
       await prefs.remove('local_collections');
       await prefs.remove('local_post_delivery_presets');
       await prefs.remove('local_post_delivery_collections');
-      print('✅ Cleared SharedPreferences cache');
+      print('âœ… Cleared SharedPreferences cache');
     } catch (e) {
-      print('❌ Failed to clear SharedPreferences cache: $e');
+      print('âŒ Failed to clear SharedPreferences cache: $e');
     }
   }
 
@@ -664,11 +707,14 @@ class PresetService {
 
     final isLive = dataSource == 'live';
     final presets = isLive ? _localPresets : _localPostDeliveryPresets;
-    print("🔍 getPresetsForDataSource('$dataSource'): returning ${presets.length} presets");
-    print("   Live presets: ${_localPresets.length}, Post-delivery presets: ${_localPostDeliveryPresets.length}");
-    for (final preset in presets) {
-      print("  - ${preset.title} (ID: ${preset.presetId}, collection: '${preset.collection}')");
-    }
+    assert(() {
+      print("ðŸ” getPresetsForDataSource('$dataSource'): returning ${presets.length} presets");
+      print("   Live presets: ${_localPresets.length}, Post-delivery presets: ${_localPostDeliveryPresets.length}");
+      for (final preset in presets) {
+        print("  - ${preset.title} (ID: ${preset.presetId}, collection: '${preset.collection}')");
+      }
+      return true;
+    }());
     return presets;
   }
 
@@ -697,10 +743,13 @@ class PresetService {
       }
     }
     final result = nameToCollection.values.toList();
-    print("🔍 getCollectionsForDataSource('$dataSource'): returning ${result.length} collections");
-    for (final collection in result) {
-      print("   - '${collection.name}' (ID: ${collection.id})");
-    }
+    assert(() {
+      print("ðŸ” getCollectionsForDataSource('$dataSource'): returning ${result.length} collections");
+      for (final collection in result) {
+        print("   - '${collection.name}' (ID: ${collection.id})");
+      }
+      return true;
+    }());
     return result;
   }
 
@@ -709,44 +758,43 @@ class PresetService {
   Future<void> _startRealtimeListeners() async {
     final user = _authService.currentUser;
     if (user == null) {
-      print("⚠️ Cannot start listeners - no user signed in");
+      print("âš ï¸ Cannot start listeners - no user signed in");
       return;
     }
     
-    // Stop any existing listeners first
     if (_isListening) {
-      print("🔄 Stopping existing listeners before starting new ones");
+      assert(() {
+        print("ðŸ”„ Stopping existing listeners before starting new ones");
+        return true;
+      }());
       await stopRealtimeListeners();
     }
 
-    // Wait a bit to ensure Firebase Auth token is propagated to Firestore
-    // This helps prevent permission-denied errors immediately after sign-in
     await Future.delayed(const Duration(milliseconds: 500));
 
-    print("🔄 Starting real-time Firebase listeners for user ${user.uid}...");
+    assert(() {
+      print("ðŸ”„ Starting real-time Firebase listeners for user ${user.uid}...");
+      return true;
+    }());
     _isListening = true;
 
     try {
-      // Verify user hasn't changed during the delay
       final currentUser = _authService.currentUser;
       if (currentUser == null || currentUser.uid != user.uid) {
-        print("⚠️ User changed or signed out during listener setup - aborting");
+        print("âš ï¸ User changed or signed out during listener setup - aborting");
         _isListening = false;
         return;
       }
 
-      // Check if user document exists before setting up listener
-      // This prevents errors when accessing subcollections for new users
       try {
         final userDocRef = _firestore.collection('users').doc(user.uid);
         final userDocSnapshot = await userDocRef.get();
         
         if (!userDocSnapshot.exists) {
-          print("📁 User document doesn't exist yet - setting up listener anyway (will work once document is created)");
+          print("ðŸ“ User document doesn't exist yet - setting up listener anyway (will work once document is created)");
         }
       } catch (e) {
-        print("⚠️ Could not check user document existence: $e");
-        // Continue anyway - listener will handle errors
+        print("âš ï¸ Could not check user document existence: $e");
       }
 
       _collectionsListener = _firestore
@@ -757,31 +805,27 @@ class PresetService {
           .listen(
             _onCollectionsChanged,
             onError: (error) {
-              print("❌ Collections listener error: $error");
+              print("âŒ Collections listener error: $error");
               final errorString = error.toString().toLowerCase();
               if (errorString.contains('permission-denied') || 
                   errorString.contains('missing or insufficient permissions')) {
-                print("⚠️ Permission denied - user may not be fully authenticated yet");
-                // Don't set _isListening to false - we'll retry later
-                // The listener will be restarted when user data loads successfully
+                print("âš ï¸ Permission denied - user may not be fully authenticated yet");
               } else if (errorString.contains('internal') || 
                          errorString.contains('server error')) {
-                print("⚠️ Internal server error in collections listener - user document may not exist yet");
-                // This is okay for new users - the listener will work once data exists
+                print("âš ï¸ Internal server error in collections listener - user document may not exist yet");
               }
             },
           );
 
       await _startPresetsListeners();
 
-      print("✅ Real-time Firebase listeners started successfully");
+      print("âœ… Real-time Firebase listeners started successfully");
     } catch (e) {
-      print("❌ Error starting real-time listeners: $e");
+      print("âŒ Error starting real-time listeners: $e");
       final errorString = e.toString().toLowerCase();
       if (errorString.contains('permission-denied') || 
           errorString.contains('missing or insufficient permissions')) {
-        print("⚠️ Permission denied - will retry after authentication is ready");
-        // Don't mark as listening so we can retry
+        print("âš ï¸ Permission denied - will retry after authentication is ready");
         _isListening = false;
       } else {
         _isListening = false;
@@ -795,7 +839,6 @@ class PresetService {
 
     await _presetsListener?.cancel();
 
-    // Cancel any existing per-collection preset listeners before rebuilding them.
     for (final sub in _presetSubListeners.values) {
       await sub.cancel();
     }
@@ -820,17 +863,15 @@ class PresetService {
         .snapshots()
         .listen(
           (collectionsSnapshot) async {
-            // Verify user hasn't changed
             final currentUser = _authService.currentUser;
             if (currentUser == null || currentUser.uid != user.uid) {
-              print("⚠️ User changed during presets listener callback - ignoring");
+              print("âš ï¸ User changed during presets listener callback - ignoring");
               return;
             }
 
             try {
-              // If no collections exist, that's fine - user just hasn't created any yet
               if (collectionsSnapshot.docs.isEmpty) {
-                print("📁 No collections in listener snapshot - clearing presets");
+                print("ðŸ“ No collections in listener snapshot - clearing presets");
                 _localPresets.clear();
                 _localPostDeliveryPresets.clear();
                 for (final sub in _presetSubListeners.values) {
@@ -845,12 +886,10 @@ class PresetService {
                 return;
               }
 
-              // Keep collection order stable (used to build a stable preset ordering).
               _collectionOrder = collectionsSnapshot.docs.map((d) => d.id).toList(growable: false);
 
               final currentIds = collectionsSnapshot.docs.map((d) => d.id).toSet();
 
-              // Remove listeners for deleted collections.
               for (final existingId in _presetSubListeners.keys.toList()) {
                 if (!currentIds.contains(existingId)) {
                   await _presetSubListeners[existingId]?.cancel();
@@ -860,7 +899,6 @@ class PresetService {
                 }
               }
 
-              // Ensure we have a presets snapshots listener for each collection.
               for (final collectionDoc in collectionsSnapshot.docs) {
                 final collectionId = collectionDoc.id;
                 final collectionData = collectionDoc.data();
@@ -871,7 +909,6 @@ class PresetService {
                 _collectionNameToId[collectionName] = collectionId;
                 _collectionIdToName[collectionId] = collectionName;
 
-                // If collection name changed, update existing cached presets' collection field.
                 final existingPresets = _livePresetsByCollectionId[collectionId];
                 if (existingPresets != null && existingPresets.isNotEmpty) {
                   final updated = existingPresets
@@ -890,7 +927,6 @@ class PresetService {
                     .listen(
                   (presetsSnapshot) async {
                     try {
-                      // Verify user hasn't changed
                       final currentUser2 = _authService.currentUser;
                       if (currentUser2 == null || currentUser2.uid != user.uid) {
                         return;
@@ -899,22 +935,22 @@ class PresetService {
                       final name = _collectionIdToName[collectionId] ?? 'Default';
                       final presets = <Preset>[];
                   
-                  for (final presetDoc in presetsSnapshot.docs) {
-                        final data = presetDoc.data() as Map<String, dynamic>;
+                      for (final presetDoc in presetsSnapshot.docs) {
+                        final raw = presetDoc.data();
+                        if (raw is! Map) continue;
+                        final data = raw.cast<String, dynamic>();
                         presets.add(Preset.fromMap({
-                      ...data,
-                      'presetId': presetDoc.id,
-                      'collectionId': collectionId,
+                          ...data,
+                          'presetId': presetDoc.id,
+                          'collectionId': collectionId,
                           'collection': name,
-                      'prompt': (data['prompt'] ?? ''),
-                          // Prefer explicit thumbnailPath; fall back to generatedImageUrls if needed.
+                          'prompt': (data['prompt'] ?? ''),
                           'thumbnailPath': data['thumbnailPath'] ?? data['generatedImageUrls'],
                         }));
                       }
 
                       _livePresetsByCollectionId[collectionId] = presets;
 
-                      // Rebuild ordered list (stable ordering by collection order).
                       final allPresets = <Preset>[];
                       for (final cid in _collectionOrder) {
                         final list = _livePresetsByCollectionId[cid];
@@ -929,11 +965,11 @@ class PresetService {
               _notifyDataChanged();
                       }
                     } catch (e) {
-                      print("❌ Error processing presets sub-listener for collection $collectionId: $e");
+                      print("âŒ Error processing presets sub-listener for collection $collectionId: $e");
                     }
                   },
                   onError: (error) {
-                    print("❌ Presets sub-listener error for collection $collectionId: $error");
+                    print("âŒ Presets sub-listener error for collection $collectionId: $error");
                   },
                 );
               }
@@ -941,38 +977,34 @@ class PresetService {
               final errorString = e.toString().toLowerCase();
               if (errorString.contains('permission-denied') || 
                   errorString.contains('missing or insufficient permissions')) {
-                print("⚠️ Permission denied in presets listener - user may not be fully authenticated");
+                print("âš ï¸ Permission denied in presets listener - user may not be fully authenticated");
               } else if (errorString.contains('internal') || 
                          errorString.contains('server error')) {
-                print("⚠️ Internal server error in presets listener - user document may not exist yet");
-                // Clear presets for new users
+                print("âš ï¸ Internal server error in presets listener - user document may not exist yet");
                 _localPresets.clear();
                 _localPostDeliveryPresets.clear();
                 _saveLocalCache();
                 _notifyDataChanged();
               } else {
-                print("❌ Error in presets listener callback: $e");
+                print("âŒ Error in presets listener callback: $e");
               }
             }
           },
           onError: (error) {
-            print("❌ Presets listener error: $error");
+            print("âŒ Presets listener error: $error");
             final errorString = error.toString().toLowerCase();
             if (errorString.contains('permission-denied') || 
                 errorString.contains('missing or insufficient permissions')) {
-              print("⚠️ Permission denied - user may not be fully authenticated yet");
+              print("âš ï¸ Permission denied - user may not be fully authenticated yet");
             } else if (errorString.contains('internal') || 
                        errorString.contains('server error')) {
-              print("⚠️ Internal server error - user document may not exist yet (normal for new users)");
+              print("âš ï¸ Internal server error - user document may not exist yet (normal for new users)");
             }
           },
         );
   }
 
-  // Firestore is the source of truth (presets are not edited locally except via Firestore thumbnail updates).
-  // So we simply apply the Firebase list, and only notify UI if something meaningful actually changed.
   bool _applyFirebasePresets(List<Preset> firebasePresets) {
-    // Build a stable signature to avoid redundant UI refreshes and cache writes.
     final sig = _presetSignature(firebasePresets);
     if (sig == _lastAppliedPresetsSignature) {
       return false;
@@ -997,7 +1029,6 @@ class PresetService {
   }
 
   String _presetSignature(List<Preset> presets) {
-    // Don't include timestamps (many docs don't have lastModified and would cause churn).
     final rows = presets
         .where((p) => p.presetId.isNotEmpty)
         .map((p) => '${p.presetId}|${p.collectionId}|${p.title}|${p.postProcessingUrl}|${p.generatedImageUrls}|${p.thumbnailPath}|${p.collection}|${p.prompt}')
@@ -1020,7 +1051,10 @@ class PresetService {
   void _mergePresetsFromFirebase(List<Preset> firebasePresets) {
 
     if (_editingPresets.isNotEmpty) {
-      print("🔄 Skipping merge - presets are being edited: $_editingPresets");
+      assert(() {
+        print("ðŸ”„ Skipping merge - presets are being edited: $_editingPresets");
+        return true;
+      }());
       return;
     }
 
@@ -1054,7 +1088,10 @@ class PresetService {
         if (localPreset.isLocalChange && localPreset.lastModified > firebasePreset.lastModified) {
 
           mergedPresets.add(localPreset);
-          print("🔄 Conflict resolved: keeping local version of preset '$presetId'");
+          assert(() {
+            print("ðŸ”„ Conflict resolved: keeping local version of preset '$presetId'");
+            return true;
+          }());
         } else {
 
           mergedPresets.add(firebasePreset);
@@ -1082,14 +1119,20 @@ class PresetService {
       }
     }
     
-    print("🔄 Merged presets with conflict resolution: ${mergedPresets.length} total");
+    assert(() {
+      print("ðŸ”„ Merged presets with conflict resolution: ${mergedPresets.length} total");
+      return true;
+    }());
     print("   Re-categorized: ${_localPresets.length} live, ${_localPostDeliveryPresets.length} post-delivery");
   }
 
   void _mergePostDeliveryPresetsFromFirebase(List<Preset> firebasePresets) {
 
     if (_editingPresets.isNotEmpty) {
-      print("🔄 Skipping post-delivery merge - presets are being edited: $_editingPresets");
+      assert(() {
+        print("ðŸ”„ Skipping post-delivery merge - presets are being edited: $_editingPresets");
+        return true;
+      }());
       return;
     }
 
@@ -1123,7 +1166,10 @@ class PresetService {
         if (localPreset.isLocalChange && localPreset.lastModified > firebasePreset.lastModified) {
 
           mergedPresets.add(localPreset);
-          print("🔄 Post-delivery conflict resolved: keeping local version of preset '$presetId'");
+          assert(() {
+            print("ðŸ”„ Post-delivery conflict resolved: keeping local version of preset '$presetId'");
+            return true;
+          }());
         } else {
 
           mergedPresets.add(firebasePreset);
@@ -1138,7 +1184,10 @@ class PresetService {
     }
     
     _localPostDeliveryPresets = mergedPresets;
-    print("🔄 Merged post-delivery presets with conflict resolution: ${mergedPresets.length} total");
+    assert(() {
+      print("ðŸ”„ Merged post-delivery presets with conflict resolution: ${mergedPresets.length} total");
+      return true;
+    }());
   }
 
   void _mergeLocalChangesWithFirebaseData(List<Preset> currentLocalPresets, List<Collection> currentLocalCollections) {
@@ -1181,17 +1230,25 @@ class PresetService {
     _localPresets = mergedPresets;
     _localCollections = mergedCollections;
     
-    print("🔄 Merged local changes with Firebase data: ${mergedPresets.length} presets, ${mergedCollections.length} collections");
+    assert(() {
+      print("ðŸ”„ Merged local changes with Firebase data: ${mergedPresets.length} presets, ${mergedCollections.length} collections");
+      return true;
+    }());
   }
 
   void _onCollectionsChanged(QuerySnapshot snapshot) {
-    print("📡 Collections changed - processing ${snapshot.docs.length} collections");
+    assert(() {
+      print("ðŸ“¡ Collections changed - processing ${snapshot.docs.length} collections");
+      return true;
+    }());
     
     try {
       final newCollections = <Collection>[];
       
       for (final doc in snapshot.docs) {
-        final data = doc.data() as Map<String, dynamic>;
+        final raw = doc.data();
+        if (raw is! Map) continue;
+        final data = raw.cast<String, dynamic>();
         final collection = Collection.fromMap({
           'id': doc.id,
           ...data,
@@ -1209,17 +1266,26 @@ class PresetService {
 
       _notifyDataChanged();
 
-      print("✅ Collections updated from real-time listener: ${newCollections.length} items");
+      assert(() {
+        print("âœ… Collections updated from real-time listener: ${newCollections.length} items");
+        return true;
+      }());
     } catch (e) {
-      print("❌ Error processing collections change: $e");
+      print("âŒ Error processing collections change: $e");
     }
   }
 
   void _onPresetsChanged(List<Preset> allPresets) {
-    print("📡 Presets changed - processing ${allPresets.length} presets");
+    assert(() {
+      print("ðŸ“¡ Presets changed - processing ${allPresets.length} presets");
+      return true;
+    }());
 
     if (_isInitialListenerFire) {
-      print("🔄 Skipping initial listener fire - data already loaded during initialization");
+      assert(() {
+        print("ðŸ”„ Skipping initial listener fire - data already loaded during initialization");
+        return true;
+      }());
       _isInitialListenerFire = false;
       return;
     }
@@ -1241,14 +1307,20 @@ class PresetService {
 
       _notifyDataChanged();
 
-      print("✅ Presets updated from real-time listener: ${allPresets.length} items");
+      assert(() {
+        print("âœ… Presets updated from real-time listener: ${allPresets.length} items");
+        return true;
+      }());
     } catch (e) {
-      print("❌ Error processing presets change: $e");
+      print("âŒ Error processing presets change: $e");
     }
   }
 
   Future<void> stopRealtimeListeners() async {
-    print("🛑 Stopping real-time Firebase listeners...");
+    assert(() {
+      print("ðŸ›‘ Stopping real-time Firebase listeners...");
+      return true;
+    }());
     
     await _collectionsListener?.cancel();
     await _presetsListener?.cancel();
@@ -1265,7 +1337,7 @@ class PresetService {
     _presetsListener = null;
     _isListening = false;
     
-    print("✅ Real-time Firebase listeners stopped");
+    print("âœ… Real-time Firebase listeners stopped");
   }
 
   bool get isListening => _isListening;
@@ -1290,14 +1362,13 @@ class PresetService {
     }
   }
 
-  /// Reset user state when user signs out
-  /// This ensures a fresh sync when a new user signs in
   Future<void> resetUserState() async {
-    print("🔄 PresetService: Resetting user state");
-    // Stop listeners when user signs out
+    assert(() {
+      print("ðŸ”„ PresetService: Resetting user state");
+      return true;
+    }());
     stopRealtimeListeners();
     
-    // Cancel all debounce timers
     for (final timer in _debounceTimers.values) {
       timer.cancel();
     }
@@ -1321,11 +1392,9 @@ class PresetService {
     _postDeliveryCollectionsLoadedFromFirebase = false;
     _isInitialListenerFire = true;
     
-    // Clear editing state and retry counts
     _editingPresets.clear();
     _retryCounts.clear();
     
-    // Clear SharedPreferences cache on sign-out only (not on app restart)
     await _clearLocalCache();
   }
 }

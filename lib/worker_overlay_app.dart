@@ -69,7 +69,12 @@ class _WorkerOverlayScreenState extends State<_WorkerOverlayScreen> {
       OverlayManager.hideOverlay();
       _exitCode = code;
 
-      await SessionService.signalWorkerDone();
+      final token = await SessionService.getActiveSessionToken();
+      if (token != null) {
+        await SessionService.signalWorkerDoneToken(token);
+      } else {
+        await SessionService.signalWorkerDone();
+      }
       exit(_exitCode);
     });
   }

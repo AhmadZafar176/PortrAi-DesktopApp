@@ -1,5 +1,4 @@
-import 'package:flutter/material.dart';
-import 'dart:math';
+﻿import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/user.dart' as app_user;
@@ -24,6 +23,9 @@ class AppState extends ChangeNotifier {
   int _selectedIndex = 0;
   bool _stayMinimizedDuringCapture = false;
   String _presetPassword = '';
+
+  Timer? _realtimeNotifyTimer;
+  bool _disposed = false;
 
   app_user.User? get currentUser => _currentUser;
   List<Preset> get presets => _presets;
@@ -61,9 +63,20 @@ class AppState extends ChangeNotifier {
   
   @override
   void dispose() {
+    _disposed = true;
     _userStreamSubscription?.cancel();
     _userStreamSubscription = null;
+    _realtimeNotifyTimer?.cancel();
     super.dispose();
+  }
+
+  void _scheduleRealtimeNotify() {
+    if (_disposed) return;
+    _realtimeNotifyTimer?.cancel();
+    _realtimeNotifyTimer = Timer(const Duration(milliseconds: 50), () {
+      if (_disposed) return;
+      notifyListeners();
+    });
   }
 
   Future<void> _loadUserData() async {
@@ -74,7 +87,10 @@ class AppState extends ChangeNotifier {
       await _presetService.initialize();
       _presets = _presetService.getPresetsForDataSource(_dataSource);
       _collections = _presetService.getCollectionsForDataSource(_dataSource);
-      print("✅ AppState: Loaded ${_presets.length} presets and ${_collections.length} collections for data source '$_dataSource'");
+      assert(() {
+        print("âœ… AppState: Loaded ${_presets.length} presets and ${_collections.length} collections for data source '$_dataSource'");
+        return true;
+      }());
       notifyListeners();
     } catch (e) {
       debugPrint('Error loading user data: $e');
@@ -95,7 +111,7 @@ class AppState extends ChangeNotifier {
       if (_currentUser == null || _currentUser!.uid != user.uid) return;
       
       if (!doc.exists) {
-        print("📁 User document doesn't exist yet - this is normal for new users");
+        print("ðŸ“ User document doesn't exist yet - this is normal for new users");
         _presetPassword = '';
         return;
       }
@@ -109,10 +125,10 @@ class AppState extends ChangeNotifier {
       final errorString = e.toString().toLowerCase();
       if (errorString.contains('permission-denied') || 
           errorString.contains('missing or insufficient permissions')) {
-        debugPrint('⚠️ Permission denied loading user settings - user may not be fully authenticated yet');
+        debugPrint('âš ï¸ Permission denied loading user settings - user may not be fully authenticated yet');
       } else if (errorString.contains('internal') || 
                  errorString.contains('server error')) {
-        debugPrint('⚠️ Internal server error loading user settings - user document may not exist yet (normal for new users)');
+        debugPrint('âš ï¸ Internal server error loading user settings - user document may not exist yet (normal for new users)');
       } else {
         debugPrint('Error loading user settings: $e');
       }
@@ -147,7 +163,10 @@ class AppState extends ChangeNotifier {
   }
 
   void setDataSource(String source) {
-    print("🔄 AppState: Switching data source from '$_dataSource' to '$source'");
+    assert(() {
+      print("ðŸ”„ AppState: Switching data source from '$_dataSource' to '$source'");
+      return true;
+    }());
     _dataSource = source;
     
     _presetService.recategorizePresets();
@@ -155,7 +174,10 @@ class AppState extends ChangeNotifier {
     _presets = _presetService.getPresetsForDataSource(_dataSource);
     _collections = _presetService.getCollectionsForDataSource(_dataSource);
     
-    print("🔄 AppState: After switch - ${_presets.length} presets, ${_collections.length} collections");
+    assert(() {
+      print("ðŸ”„ AppState: After switch - ${_presets.length} presets, ${_collections.length} collections");
+      return true;
+    }());
     
     _presetService.updateDataSource(_dataSource);
     
@@ -201,7 +223,10 @@ class AppState extends ChangeNotifier {
   }
 
   void handleRealtimeUpdate() {
-    print("🔄 AppState: Handling real-time update from Firebase");
+    assert(() {
+      debugPrint("ðŸ”„ AppState: Handling real-time update from Firebase");
+      return true;
+    }());
     
     _presets = _presetService.getPresetsForDataSource(_dataSource);
     _collections = _presetService.getCollectionsForDataSource(_dataSource);
@@ -214,9 +239,12 @@ class AppState extends ChangeNotifier {
       _selectedIndex = _presets.length - 1;
     }
     
-    notifyListeners();
-    
-    print("✅ AppState: Updated with ${_presets.length} presets and ${_collections.length} collections");
+    _scheduleRealtimeNotify();
+
+    assert(() {
+      debugPrint("âœ… AppState: Updated with ${_presets.length} presets and ${_collections.length} collections");
+      return true;
+    }());
   }
 
   bool get isRealtimeListening => _presetService.isListening;

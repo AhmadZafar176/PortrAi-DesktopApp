@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
@@ -7,11 +7,10 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 import '../services/preset_service.dart';
+import '../services/log_service.dart';
 import '../services/session_service.dart';
-import '../done_button_app.dart';
 import '../providers/app_state.dart';
 import '../models/preset.dart';
-import '../models/collection.dart';
 import '../widgets/chevron_widget.dart';
 import '../services/thumbnail_cache_service.dart';
 
@@ -63,6 +62,11 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
   Timer? _workerPollTimer;
   Timer? _donePollTimer;
   bool _minimizing = false;
+  String? _activeSessionToken;
+
+  int _lastAllPresetsCount = -1;
+  final Map<String, List<Preset>> _presetsByCollection = <String, List<Preset>>{};
+  List<Preset> _allPresetsSnapshot = <Preset>[];
 
   static const double baseWidth = 600.0;
   static const double baseHeight = 600.0;
@@ -106,7 +110,10 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
     super.initState();
 
 
-    print('BoothSelectionScreen:init');
+    assert(() {
+      debugPrint('BoothSelectionScreen:init');
+      return true;
+    }());
     _selectedIndex = 0;
     _scrollController.addListener(_onScroll);
 
@@ -116,7 +123,10 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
       _calculateResponsiveCardSize();
       _setFullscreenFrameless();
 
-      print('BoothSelectionScreen:postFrame ready');
+      assert(() {
+        debugPrint('BoothSelectionScreen:postFrame ready');
+        return true;
+      }());
       _initPresetsFromFilter();
     });
   }
@@ -135,17 +145,13 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
     final orientation = MediaQuery.of(context).orientation;
     
     if (orientation == Orientation.portrait) {
-      // Portrait: size cards so that 3 cards fit in the viewport (with gaps),
-      // while still allowing extra scroll padding so edge cards can be centered.
       const visibleCols = 3;
       final currentGap = _getGap();
       final totalGaps = (visibleCols - 1) * currentGap;
       final availableWidth = screenWidth - totalGaps - (sidePaddingPortrait * 2);
       final calculatedWidth = availableWidth / visibleCols;
 
-      // Allow smaller cards in portrait to guarantee 3 fit.
       _cardWidth = math.max(140.0, calculatedWidth);
-      // Slightly taller cards in portrait.
       _cardHeight = _cardWidth * portraitHeightFactor;
     } else {
 
@@ -181,12 +187,24 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
       ...presetService.localPresets,
       ...presetService.localPostDeliveryPresets,
     ];
+
+    if (allPresets.length != _lastAllPresetsCount) {
+      _lastAllPresetsCount = allPresets.length;
+      _allPresetsSnapshot = allPresets;
+      _presetsByCollection.clear();
+      for (final p in allPresets) {
+        final key = p.collection;
+        if (key.isEmpty) continue;
+        (_presetsByCollection[key] ??= <Preset>[]).add(p);
+      }
+    }
+
     final String? filter = widget.collectionFilter;
     List<Preset> list;
     if (filter == null) {
-      list = allPresets;
+      list = List<Preset>.of(_allPresetsSnapshot);
     } else {
-      list = allPresets.where((p) => p.collection == filter).toList();
+      list = List<Preset>.of(_presetsByCollection[filter] ?? const <Preset>[]);
     }
 
     if (appState.noEffectsEnabled) {
@@ -197,6 +215,8 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
     setState(() {
       _currentPresets = list;
       _selectedIndex = _currentPresets.isNotEmpty ? 0 : -1;
+      _portraitPage = 0;
+      _portraitTargetPage = 0;
       _hasPostDeliveryPreset = list.any(
         (p) => p.postProcessingUrl.toLowerCase().contains('post-delivery'),
       );
@@ -204,6 +224,10 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _updateArrows();
+      if (!mounted) return;
+      if (_portraitPageController.hasClients) {
+        _portraitPageController.jumpToPage(0);
+      }
     });
   }
 
@@ -228,8 +252,6 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
   }
 
   double _portraitTileHeight() {
-    // Card widget includes the image container (_cardHeight) plus title/label below it.
-    // Give enough room so the second row doesn't clip.
     final caption = _hasPostDeliveryPreset ? 64.0 : 44.0;
     return _cardHeight + caption;
   }
@@ -278,6 +300,14 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
     return Duration(milliseconds: ms);
   }
 
+  int _portraitCurrentPage() {
+    if (_portraitPageController.hasClients) {
+      final p = _portraitPageController.page;
+      if (p != null) return p.round();
+    }
+    return _portraitPage;
+  }
+
   void _snapPortraitToNearestPage() {
     if (!_portraitPageController.hasClients) return;
     final raw = _portraitPageController.page ?? _portraitPage.toDouble();
@@ -317,15 +347,24 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
   Future<void> _scrollPortraitPage(int deltaPages) async {
     final pageCount = _portraitPageCount();
     if (pageCount <= 1) return;
-    final nextPage = (_portraitPage + deltaPages).clamp(0, pageCount - 1);
-    if (nextPage == _portraitPage) return;
-    _setPortraitPage(nextPage);
-    if (_portraitPageController.hasClients) {
+
+    final current = _portraitCurrentPage();
+    final nextPage = (current + deltaPages).clamp(0, pageCount - 1);
+    if (nextPage == current) return;
+
+    if (!_portraitPageController.hasClients) {
       _portraitTargetPage = nextPage;
-      // Fire-and-forget: if more scroll input arrives, target updates and the loop
-      // naturally continues, giving a cascade-like feel.
-      unawaited(_runPortraitPageAnimationLoop());
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (!_portraitPageController.hasClients) return;
+        unawaited(_runPortraitPageAnimationLoop());
+      });
+      return;
     }
+
+    _setPortraitPage(nextPage);
+    _portraitTargetPage = nextPage;
+    unawaited(_runPortraitPageAnimationLoop());
   }
 
   void _onScroll() {
@@ -631,10 +670,7 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
     await SessionService.saveSelectedPreset(preset, presetPassword: appState.presetPassword);
     if (!mounted) return;
 
-    await SessionService.clearWorkerDone();
-    if (!mounted) return;
-    
-    await SessionService.clearDonePressed();
+    _activeSessionToken = await SessionService.startSession();
     if (!mounted) return;
 
     if (Platform.isWindows) {
@@ -656,6 +692,10 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
         if (!mounted) return;
         await windowManager.minimize();
       } catch (_) {
+        assert(() {
+          debugPrint('âš ï¸ Failed to minimize window');
+          return true;
+        }());
       } finally {
         _minimizing = false;
       }
@@ -672,7 +712,10 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
         return;
       }
       
-      final isDone = await SessionService.checkWorkerDone();
+      final token = _activeSessionToken;
+      final isDone = token != null
+          ? await SessionService.checkWorkerDoneToken(token)
+          : await SessionService.checkWorkerDone();
       if (!mounted) {
         timer.cancel();
         return;
@@ -681,6 +724,7 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
       if (isDone) {
         timer.cancel();
         await SessionService.clearWorkerDone();
+        await SessionService.setActiveSessionPhase(SessionService.phaseWaitingSessionEnd);
         if (mounted) {
           _startDonePressedPolling(appState);
         }
@@ -699,11 +743,10 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
           ? DateTime.now().difference(_restoreStartTime!)
           : Duration.zero;
       if (elapsed > _restoreTimeout) {
-        print('⚠️ Restore timeout exceeded, resetting _restoring flag');
+        await LogService.log('BoothSelectionScreen:restore timeout exceeded, resetting restoring flag');
         _restoring = false;
         _restoreStartTime = null;
       } else {
-        print('⚠️ Restore already in progress, skipping');
         return;
       }
     }
@@ -715,11 +758,9 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
     
     try {
       if (!mounted) {
-        print('⚠️ Widget disposed, skipping window restoration');
         return;
       }
       
-      print('🔄 Starting window restoration...');
       await windowManager.setAlwaysOnTop(true);
       alwaysOnTopSet = true;
       
@@ -740,10 +781,9 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
         alwaysOnTopSet = false;
       }
       
-      print('✅ Window restoration completed successfully');
     } catch (e, stack) {
-      print('❌ Error restoring window: $e');
-      print('Stack trace: $stack');
+      await LogService.log('BoothSelectionScreen: error restoring window: $e');
+      await LogService.log('BoothSelectionScreen: restore stack: $stack');
     } finally {
       try {
         if (alwaysOnTopSet && mounted) {
@@ -753,7 +793,7 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
           appState.setStayMinimizedDuringCapture(false);
         }
       } catch (e) {
-        print('⚠️ Error resetting window state: $e');
+        await LogService.log('BoothSelectionScreen: error resetting window state: $e');
       } finally {
         _restoring = false;
         _restoreStartTime = null;
@@ -769,7 +809,10 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
         return;
       }
       
-      final pressed = await SessionService.checkDonePressed();
+      final token = _activeSessionToken;
+      final pressed = token != null
+          ? await SessionService.checkDonePressedToken(token)
+          : await SessionService.checkDonePressed();
       if (!mounted) {
         timer.cancel();
         return;
@@ -779,12 +822,13 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
         timer.cancel();
         await SessionService.clearDonePressed();
         
+        await SessionService.setActiveSessionPhase(SessionService.phaseIdle);
+        
         if (!mounted) {
           return;
         }
         
         if (Platform.isWindows) {
-          print('📥 session_end received, restoring window...');
           await _restoreSeamless(appState);
         }
       }
@@ -1019,7 +1063,7 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           const Text(
-            '📁',
+            'ðŸ“',
             style: TextStyle(
               fontSize: 80,
               color: Color(0xFF6B7280),
@@ -1189,9 +1233,9 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
               ),
             ),
           ),
+          ),
         ),
-      ),
-    );
+      );
     }
 
     return Center(
@@ -1278,7 +1322,7 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(14),
-                child: preset.generatedImageUrls.isNotEmpty
+                child: ThumbnailCacheService.instance.isSupportedImageSource(preset.generatedImageUrls)
                     ? Image(
                         image: (() {
                           final dpr = MediaQuery.of(context).devicePixelRatio;
@@ -1337,7 +1381,7 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
       color: const Color(0xFF1F2937),
       child: const Center(
         child: Text(
-          '📷',
+          'ðŸ“·',
           style: TextStyle(
             fontSize: 100,
             color: Color(0xFF6B7280),

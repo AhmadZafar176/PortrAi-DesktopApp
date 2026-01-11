@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
@@ -32,11 +32,25 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
   bool _noEffectsEnabled = false;
   String? _selectedCollectionFilter;
   String _lastDataSource = 'live';
+  AppState? _listenedAppState;
+  bool _handlingDataSourceChange = false;
+
+  List<Preset>? _cachedFilteredPresets;
+  String? _cachedCollectionFilter;
+  List<Preset>? _cachedPresetsRef;
+
+  List<DropdownMenuItem<String>>? _cachedCollectionItems;
+  List<Collection>? _cachedCollectionsRef;
 
   final Map<String, TextEditingController> _titleControllers = {};
   String _lastPreloadKey = '';
   Timer? _preloadTimer;
   bool _isNavigating = false;
+  final ScrollController _presetsScrollController = ScrollController();
+
+  static const double _approxPresetCardExtent = 220.0;
+  static const int _preloadOverscanItems = 8;
+  static const int _maxPreloadUrlsPerBurst = 48;
 
   TextEditingController _titleControllerFor(Preset preset) {
     return _titleControllers.putIfAbsent(
@@ -45,15 +59,55 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     );
   }
 
-  void _debouncedPreloadThumbnails(BuildContext context, List<Preset> presets) {
-    final urls = presets.map((p) => p.generatedImageUrls).where((u) => u.isNotEmpty).toList();
-    final key = urls.join('|');
+  void _debouncedPreloadThumbnailsForWindow(
+    BuildContext context,
+    List<Preset> presets, {
+    required int startIndex,
+    required int endIndex,
+  }) {
+    if (presets.isEmpty) return;
+    final s = startIndex.clamp(0, presets.length);
+    final e = endIndex.clamp(0, presets.length);
+    if (e <= s) return;
+
+    final cappedEnd = (s + _maxPreloadUrlsPerBurst).clamp(0, e);
+    final urls = <String>[];
+    for (var i = s; i < cappedEnd; i++) {
+      final u = presets[i].generatedImageUrls;
+      if (ThumbnailCacheService.instance.isNetworkImageUrl(u)) {
+        urls.add(u);
+      }
+    }
+    if (urls.isEmpty) return;
+
+    final key = '${presets.length}|$s|$cappedEnd|${_selectedCollectionFilter ?? ''}|$_lastDataSource';
     if (key == _lastPreloadKey) return;
     _lastPreloadKey = key;
+
     _preloadTimer?.cancel();
-    _preloadTimer = Timer(const Duration(milliseconds: 150), () {
+    _preloadTimer = Timer(const Duration(milliseconds: 120), () {
       ThumbnailCacheService.instance.preloadUrls(urls, context: context);
     });
+  }
+
+  void _preloadThumbnailsAroundViewport(BuildContext context, List<Preset> presets) {
+    if (!_presetsScrollController.hasClients) {
+      _debouncedPreloadThumbnailsForWindow(
+        context,
+        presets,
+        startIndex: 0,
+        endIndex: min(presets.length, _maxPreloadUrlsPerBurst),
+      );
+      return;
+    }
+
+    final metrics = _presetsScrollController.position;
+    final firstApprox = (metrics.pixels / _approxPresetCardExtent).floor();
+    final visibleApprox = (metrics.viewportDimension / _approxPresetCardExtent).ceil();
+    final start = max(0, firstApprox - _preloadOverscanItems);
+    final end = min(presets.length, firstApprox + visibleApprox + _preloadOverscanItems);
+
+    _debouncedPreloadThumbnailsForWindow(context, presets, startIndex: start, endIndex: end);
   }
 
   @override
@@ -61,6 +115,32 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     super.initState();
     _enterFullscreenFrameless();
     windowManager.addListener(this);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final appState = Provider.of<AppState>(context, listen: false);
+    if (identical(_listenedAppState, appState)) return;
+    _listenedAppState?.removeListener(_onAppStateChanged);
+    _listenedAppState = appState;
+    _lastDataSource = appState.dataSource;
+    appState.addListener(_onAppStateChanged);
+  }
+
+  void _onAppStateChanged() {
+    final appState = _listenedAppState;
+    if (appState == null) return;
+    if (!mounted) return;
+    if (_handlingDataSourceChange) return;
+    if (_lastDataSource == appState.dataSource) return;
+
+    _handlingDataSourceChange = true;
+    setState(() {
+      _lastDataSource = appState.dataSource;
+      _selectedCollectionFilter = null;
+    });
+    _handlingDataSourceChange = false;
   }
 
   Future<void> _enterFullscreenFrameless() async {
@@ -77,10 +157,12 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
   void dispose() {
     windowManager.removeListener(this);
     _preloadTimer?.cancel();
+    _presetsScrollController.dispose();
     _escFocusNode.dispose();
     for (final controller in _titleControllers.values) {
       controller.dispose();
     }
+    _listenedAppState?.removeListener(_onAppStateChanged);
     super.dispose();
   }
 
@@ -122,14 +204,6 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                 child: Consumer<AppState>(
         builder: (context, appState, child) {
 
-          if (_lastDataSource != appState.dataSource) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              setState(() {
-                _lastDataSource = appState.dataSource;
-                _selectedCollectionFilter = null;
-              });
-            });
-          }
           return Stack(
             children: [
               Padding(
@@ -258,13 +332,25 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                                           final list = _getFilteredPresets(appState);
 
 
-                                          _debouncedPreloadThumbnails(context, list);
-                                          return ListView.builder(
+                                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                                            if (!mounted) return;
+                                            _preloadThumbnailsAroundViewport(context, list);
+                                          });
+
+                                          return NotificationListener<ScrollNotification>(
+                                            onNotification: (n) {
+                                              if (n.metrics.axis != Axis.vertical) return false;
+                                              _preloadThumbnailsAroundViewport(context, list);
+                                              return false;
+                                            },
+                                            child: ListView.builder(
+                                              controller: _presetsScrollController,
                                             itemCount: list.length,
                                             itemBuilder: (context, index) {
                                               final preset = list[index];
                                               return _buildPresetCard(preset, index, appState);
                                             },
+                                            ),
                                           );
                                         },
                                       ),
@@ -344,14 +430,6 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                         child: Consumer<AppState>(
         builder: (context, appState, child) {
 
-          if (_lastDataSource != appState.dataSource) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              setState(() {
-                _lastDataSource = appState.dataSource;
-                _selectedCollectionFilter = null;
-              });
-            });
-          }
           return Stack(
             children: [
               LayoutBuilder(
@@ -493,13 +571,25 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                                           final list = _getFilteredPresets(appState);
 
 
-                                          _debouncedPreloadThumbnails(context, list);
-                                          return ListView.builder(
+                                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                                            if (!mounted) return;
+                                            _preloadThumbnailsAroundViewport(context, list);
+                                          });
+
+                                          return NotificationListener<ScrollNotification>(
+                                            onNotification: (n) {
+                                              if (n.metrics.axis != Axis.vertical) return false;
+                                              _preloadThumbnailsAroundViewport(context, list);
+                                              return false;
+                                            },
+                                            child: ListView.builder(
+                                              controller: _presetsScrollController,
                                             itemCount: list.length,
                                             itemBuilder: (context, index) {
                                               final preset = list[index];
                                               return _buildPresetCard(preset, index, appState);
                                             },
+                                            ),
                                           );
                                         },
                                       ),
@@ -576,16 +666,10 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                         height: effectiveBaseHeight,
                         child: Consumer<AppState>(
         builder: (context, appState, child) {
-          print("🔄 MainScreen Consumer rebuild - dataSource: ${appState.dataSource}, presets: ${appState.presets.length}");
-          if (_lastDataSource != appState.dataSource) {
-            print("🔍 Data source changed from '$_lastDataSource' to '${appState.dataSource}', resetting collection filter");
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              setState(() {
-                _lastDataSource = appState.dataSource;
-                _selectedCollectionFilter = null;
-              });
-            });
-          }
+          assert(() {
+            return true;
+          }());
+          
           return Stack(
             children: [
               LayoutBuilder(
@@ -727,13 +811,25 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                                           final list = _getFilteredPresets(appState);
 
 
-                                          _debouncedPreloadThumbnails(context, list);
-                                          return ListView.builder(
+                                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                                            if (!mounted) return;
+                                            _preloadThumbnailsAroundViewport(context, list);
+                                          });
+
+                                          return NotificationListener<ScrollNotification>(
+                                            onNotification: (n) {
+                                              if (n.metrics.axis != Axis.vertical) return false;
+                                              _preloadThumbnailsAroundViewport(context, list);
+                                              return false;
+                                            },
+                                            child: ListView.builder(
+                                              controller: _presetsScrollController,
                                             itemCount: list.length,
                                             itemBuilder: (context, index) {
                                               final preset = list[index];
                                               return _buildPresetCard(preset, index, appState);
                                             },
+                                            ),
                                           );
                                         },
                                       ),
@@ -898,7 +994,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                   color: const Color(0xFF111827),
                   borderRadius: BorderRadius.circular(6),
                 ),
-                    child: preset.generatedImageUrls.isNotEmpty
+                    child: ThumbnailCacheService.instance.isSupportedImageSource(preset.generatedImageUrls)
                         ? ClipRRect(
                             borderRadius: BorderRadius.circular(6),
                           child: Builder(
@@ -918,7 +1014,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                               loadingBuilder: (context, child, loadingProgress) {
                                 if (loadingProgress == null) return child;
                                 assert(() {
-                                  print("📥 Loading image for '${preset.title}': ${loadingProgress.cumulativeBytesLoaded} / ${loadingProgress.expectedTotalBytes ?? 'unknown'}");
+                                  print("ðŸ“¥ Loading image for '${preset.title}': ${loadingProgress.cumulativeBytesLoaded} / ${loadingProgress.expectedTotalBytes ?? 'unknown'}");
                                   return true;
                                 }());
                                 return Center(
@@ -931,7 +1027,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                               },
                               errorBuilder: (context, error, stackTrace) {
                                 assert(() {
-                                  print("❌ Error loading image for '${preset.title}' from URL: ${preset.generatedImageUrls}");
+                                  print("âŒ Error loading image for '${preset.title}' from URL: ${preset.generatedImageUrls}");
                                   print("   Error: $error");
                                   return true;
                                 }());
@@ -994,7 +1090,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                         ),
                         child: Center(
                           child: Text(
-                            '🗂️',
+                            'ðŸ—‚ï¸',
                             style: TextStyle(
                               fontSize: 16,
                               color: Colors.white,
@@ -1375,25 +1471,30 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
   List<Preset> _getFilteredPresets(AppState appState) {
 
     
-    if (_selectedCollectionFilter == null) {
+    if (_selectedCollectionFilter == null) return appState.presets;
 
-      return appState.presets;
+    if (_cachedFilteredPresets != null &&
+        identical(_cachedPresetsRef, appState.presets) &&
+        _cachedCollectionFilter == _selectedCollectionFilter) {
+      return _cachedFilteredPresets!;
     }
 
-    print("🔍 Filtering presets by collection: '$_selectedCollectionFilter'");
-    print("   Total presets: ${appState.presets.length}");
-    print("   Available collections: ${appState.collections.map((c) => c.name).toList()}");
+    assert(() {
+      return true;
+    }());
     
     final filtered = appState.presets.where((preset) {
       final matches = preset.collection == _selectedCollectionFilter;
-      if (!matches) {
-        print("   Preset '${preset.title}' has collection '${preset.collection}' (doesn't match '$_selectedCollectionFilter')");
-      }
       return matches;
     }).toList();
     
-    print("   Filtered result: ${filtered.length} presets");
-    return filtered;
+    assert(() {
+      return true;
+    }());
+    _cachedPresetsRef = appState.presets;
+    _cachedCollectionFilter = _selectedCollectionFilter;
+    _cachedFilteredPresets = filtered;
+    return _cachedFilteredPresets!;
   }
 
   Widget _buildCollectionFilter(AppState appState) {
@@ -1403,8 +1504,9 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
         appState.collections.isNotEmpty &&
         !appState.collections.any((c) => c.name == _selectedCollectionFilter)) {
 
-      print("🔍 Collection filter validation: '$_selectedCollectionFilter' not found in collections, resetting filter");
-      print("   Available collections: ${appState.collections.map((c) => c.name).toList()}");
+      assert(() {
+        return true;
+      }());
       WidgetsBinding.instance.addPostFrameCallback((_) {
         setState(() {
           _selectedCollectionFilter = null;
@@ -1491,7 +1593,9 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                   ),
                   items: _buildCollectionFilterItems(appState.collections),
                   onChanged: (value) {
-                    print("🔍 Collection filter changed to: '$value'");
+                    assert(() {
+                      return true;
+                    }());
                     setState(() {
                       _selectedCollectionFilter = value;
                     });
@@ -1530,12 +1634,14 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
   }
 
   List<DropdownMenuItem<String>> _buildCollectionFilterItems(List<Collection> collections) {
+    if (_cachedCollectionItems != null && identical(_cachedCollectionsRef, collections)) {
+      return _cachedCollectionItems!;
+    }
     final items = <DropdownMenuItem<String>>[];
 
-    print("🔍 Building collection filter items for ${collections.length} collections:");
-    for (final collection in collections) {
-      print("   - '${collection.name}' (ID: ${collection.id})");
-    }
+    assert(() {
+      return true;
+    }());
 
     items.add(const DropdownMenuItem<String>(
       value: null,
@@ -1573,6 +1679,8 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
       ));
     }
     
+    _cachedCollectionsRef = collections;
+    _cachedCollectionItems = items;
     return items;
   }
 }
