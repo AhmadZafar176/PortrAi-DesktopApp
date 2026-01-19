@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'dart:io';
 import 'package:path/path.dart' as p;
 
@@ -211,6 +211,10 @@ class SessionService {
     return p.join(_sessionDirPath(), 'done_pressed.signal');
   }
 
+  static String _pendingSessionEndPath() {
+    return p.join(_sessionDirPath(), 'pending_session_end.signal');
+  }
+
   static Future<void> signalDonePressedToken(String token) async {
     try {
       final file = File(_donePressedFilePath());
@@ -248,6 +252,31 @@ class SessionService {
   static Future<void> clearDonePressed() async {
     try {
       final file = File(_donePressedFilePath());
+      if (await file.exists()) {
+        await file.delete();
+      }
+    } catch (_) {}
+  }
+
+  static Future<void> setPendingSessionEnd() async {
+    try {
+      final file = File(_pendingSessionEndPath());
+      await file.writeAsString('pending', flush: true);
+    } catch (_) {}
+  }
+
+  static Future<bool> hasPendingSessionEnd() async {
+    try {
+      final file = File(_pendingSessionEndPath());
+      return await file.exists();
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<void> clearPendingSessionEnd() async {
+    try {
+      final file = File(_pendingSessionEndPath());
       if (await file.exists()) {
         await file.delete();
       }

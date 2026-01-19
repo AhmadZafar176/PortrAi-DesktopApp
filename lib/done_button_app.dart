@@ -64,7 +64,7 @@ class _DoneButtonAppState extends State<DoneButtonApp> {
               if (token != null) {
                 await SessionService.signalDonePressedToken(token);
               } else {
-                await SessionService.signalDonePressed();
+              await SessionService.signalDonePressed();
               }
               await LogService.log('DoneButton pressed');
               exit(0);

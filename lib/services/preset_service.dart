@@ -34,7 +34,7 @@ class PresetService {
   static const Duration _firebaseSyncInterval = Duration(minutes: 5);
   bool _initialSyncCompleted = false;
   bool _isInitialListenerFire = true;
-  String? _currentUserId; // Track current user to detect user changes
+  String? _currentUserId;
 
   final Map<String, Timer> _debounceTimers = {};
 

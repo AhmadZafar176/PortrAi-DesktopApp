@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 
 import 'log_service.dart';
 import 'session_service.dart';
@@ -44,9 +44,9 @@ class EventServerService {
 
       if (eventType == 'session_end') {
         final token = await SessionService.getActiveSessionToken();
-        if (token != null) {
-          final phase = await SessionService.getActiveSessionPhase();
-          if (phase == SessionService.phaseWaitingSessionEnd) {
+        final phase = await SessionService.getActiveSessionPhase();
+        if (phase == SessionService.phaseWaitingSessionEnd) {
+          if (token != null) {
             await SessionService.signalDonePressedToken(token).timeout(
               const Duration(seconds: 5),
               onTimeout: () {
@@ -54,15 +54,16 @@ class EventServerService {
               },
             );
           } else {
-            await LogService.log("EventServer: ignored session_end (phase='$phase')");
+        await SessionService.signalDonePressed().timeout(
+          const Duration(seconds: 5),
+          onTimeout: () {
+                print('âš ï¸ SessionService.signalDonePressed timeout');
+          },
+        );
           }
         } else {
-          await SessionService.signalDonePressed().timeout(
-            const Duration(seconds: 5),
-            onTimeout: () {
-              print('âš ï¸ SessionService.signalDonePressed timeout');
-            },
-          );
+          await SessionService.setPendingSessionEnd();
+          await LogService.log("EventServer: queued session_end (phase='$phase')");
         }
       }
       

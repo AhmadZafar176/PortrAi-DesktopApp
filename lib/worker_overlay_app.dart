@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:isolate';
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:screen_retriever/screen_retriever.dart';
@@ -15,6 +16,8 @@ class WorkerOverlayApp extends StatefulWidget {
 }
 
 class _WorkerOverlayAppState extends State<WorkerOverlayApp> with WindowListener {
+  bool _hideWindow = false;
+
   @override
   void initState() {
     super.initState();
@@ -30,8 +33,15 @@ class _WorkerOverlayAppState extends State<WorkerOverlayApp> with WindowListener
 
   Future<void> _initWorkerWindow() async {
     await windowManager.ensureInitialized();
+    final preset = await SessionService.loadSelectedPreset();
+    _hideWindow = preset?.isNoEffects ?? false;
     await windowManager.setTitleBarStyle(TitleBarStyle.hidden);
     await windowManager.setFullScreen(true);
+    if (_hideWindow) {
+      await windowManager.setOpacity(0.0);
+      await windowManager.setSkipTaskbar(true);
+      return;
+    }
     await windowManager.show();
     await windowManager.focus();
   }
@@ -59,21 +69,36 @@ class _WorkerOverlayScreenState extends State<_WorkerOverlayScreen> {
   static const double _baseHeight = 1080;
   bool _showDoneButton = false;
   int _exitCode = 0;
+  bool _showProcessingOverlay = true;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final preset = await SessionService.loadSelectedPreset();
+      _showProcessingOverlay = !(preset?.isNoEffects ?? false);
+      if (_showProcessingOverlay) {
       OverlayManager.showProcessing(context, 'Waiting for processed image…');
-      final code = await FileProcessingService.processFilesHeadless(widget.files);
+        await WidgetsBinding.instance.endOfFrame;
+      }
+      int code;
+      try {
+        code = await Isolate.run(
+          () => FileProcessingService.processFilesHeadless(widget.files),
+        );
+      } catch (e) {
+        code = await FileProcessingService.processFilesHeadless(widget.files);
+      }
+      if (_showProcessingOverlay) {
       OverlayManager.hideOverlay();
+      }
       _exitCode = code;
 
       final token = await SessionService.getActiveSessionToken();
       if (token != null) {
         await SessionService.signalWorkerDoneToken(token);
       } else {
-        await SessionService.signalWorkerDone();
+      await SessionService.signalWorkerDone();
       }
       exit(_exitCode);
     });

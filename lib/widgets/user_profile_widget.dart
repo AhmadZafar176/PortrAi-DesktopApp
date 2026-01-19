@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_state.dart';
 import '../services/thumbnail_cache_service.dart';
@@ -122,14 +122,12 @@ class _UserProfileWidgetState extends State<UserProfileWidget> {
             child: ListTile(
               leading: AnimatedContainer(
                 duration: const Duration(milliseconds: 150),
-                child: Text(
-                  'ðŸšª',
-                  style: TextStyle(
-                    fontSize: 20,
-                    color: isHovered 
-                        ? const Color(0xFFEF4444)
-                        : const Color(0xFFEF4444).withOpacity(0.8),
-                  ),
+                child: Icon(
+                  Icons.logout,
+                  size: 20,
+                  color: isHovered
+                      ? const Color(0xFFEF4444)
+                      : const Color(0xFFEF4444).withOpacity(0.8),
                 ),
               ),
               title: AnimatedDefaultTextStyle(
@@ -226,24 +224,33 @@ class _UserProfileWidgetState extends State<UserProfileWidget> {
                         ),
                       ),
                       child: ClipOval(
-                        child: (appState.currentUser?.photoURL != null &&
-                                ThumbnailCacheService.instance
-                                    .isNetworkImageUrl(appState.currentUser!.photoURL!))
-                            ? Image.network(
-                                _getWebCompatibleImageUrl(appState.currentUser!.photoURL!),
-                                width: 40,
-                                height: 40,
-                                fit: BoxFit.cover,
-                                headers: const {
-                                  'Access-Control-Allow-Origin': '*',
-                                },
-                                errorBuilder: (context, error, stackTrace) {
-                                  print('ðŸ–¼ï¸ Image loading error: $error');
-                                  print('ðŸ–¼ï¸ Stack trace: $stackTrace');
-                                  return _buildFallbackAvatar(appState.currentUser!);
-                                },
-                              )
-                            : _buildFallbackAvatar(appState.currentUser!),
+                        child: () {
+                          final user = appState.currentUser;
+                          if (user == null) {
+                            return _buildFallbackAvatar(null);
+                          }
+                          final photoUrl = user.photoURL;
+                          final isPhotoUrlValid = photoUrl != null &&
+                              ThumbnailCacheService.instance
+                                  .isNetworkImageUrl(photoUrl);
+                          if (!isPhotoUrlValid) {
+                            return _buildFallbackAvatar(user);
+                          }
+                          return Image.network(
+                            _getWebCompatibleImageUrl(photoUrl),
+                            width: 40,
+                            height: 40,
+                            fit: BoxFit.cover,
+                            headers: const {
+                              'Access-Control-Allow-Origin': '*',
+                            },
+                            errorBuilder: (context, error, stackTrace) {
+                              print('ðŸ–¼ï¸ Image loading error: $error');
+                              print('ðŸ–¼ï¸ Stack trace: $stackTrace');
+                              return _buildFallbackAvatar(user);
+                            },
+                          );
+                        }(),
                       ),
                     ),
                     
@@ -298,9 +305,10 @@ class _UserProfileWidgetState extends State<UserProfileWidget> {
   }
 
   Widget _buildFallbackAvatar(dynamic user) {
-
     String initials = '';
-    if (user.displayName != null && user.displayName!.isNotEmpty) {
+    if (user == null) {
+      initials = '?';
+    } else if (user.displayName != null && user.displayName!.isNotEmpty) {
       final names = user.displayName!.split(' ');
       if (names.length >= 2) {
         initials = '${names[0][0]}${names[1][0]}'.toUpperCase();
@@ -308,9 +316,13 @@ class _UserProfileWidgetState extends State<UserProfileWidget> {
         initials = user.displayName![0].toUpperCase();
       }
     } else {
-
-      final emailParts = user.email.split('@');
-      initials = emailParts[0].substring(0, 1).toUpperCase();
+      final email = user.email ?? '';
+      final emailParts = email.split('@');
+      if (emailParts.isNotEmpty && emailParts[0].isNotEmpty) {
+        initials = emailParts[0].substring(0, 1).toUpperCase();
+      } else {
+        initials = '?';
+      }
     }
 
     return Container(
@@ -355,9 +367,6 @@ class _UserProfileWidgetState extends State<UserProfileWidget> {
   }
 
   String _getWebCompatibleImageUrl(String photoURL) {
-    print('ðŸ–¼ï¸ Original photo URL: $photoURL');
-
-
     if (photoURL.contains('googleusercontent.com')) {
 
       if (!photoURL.contains('sz=')) {
@@ -365,8 +374,6 @@ class _UserProfileWidgetState extends State<UserProfileWidget> {
         photoURL = '$photoURL${separator}sz=40';
       }
     }
-    
-    print('ðŸ–¼ï¸ Web-compatible photo URL: $photoURL');
     return photoURL;
   }
 }

@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
@@ -40,7 +40,7 @@ class BoothSelectionScreen extends StatefulWidget {
 }
 
 class _BoothSelectionScreenState extends State<BoothSelectionScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WindowListener {
 
   static const double _baseWidth = 1920;
   static const double _baseHeight = 1080;
@@ -63,6 +63,9 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
   Timer? _donePollTimer;
   bool _minimizing = false;
   String? _activeSessionToken;
+  bool _focusLockEnabled = false;
+  Timer? _focusLockTimer;
+  bool _forcingFocus = false;
 
   int _lastAllPresetsCount = -1;
   final Map<String, List<Preset>> _presetsByCollection = <String, List<Preset>>{};
@@ -116,6 +119,9 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
     }());
     _selectedIndex = 0;
     _scrollController.addListener(_onScroll);
+    if (Platform.isWindows) {
+      windowManager.addListener(this);
+    }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _focusNode.requestFocus();
@@ -131,10 +137,111 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
     });
   }
   
+  void _enableFocusLock() {
+    if (!Platform.isWindows) return;
+    if (_focusLockEnabled) return;
+    _focusLockEnabled = true;
+
+    _focusLockTimer?.cancel();
+    _focusLockTimer = Timer.periodic(const Duration(milliseconds: 900), (_) {
+      if (!mounted) return;
+      if (_focusLockEnabled) {
+        unawaited(_reassertFocus());
+      }
+    });
+
+    unawaited(_reassertFocus());
+  }
+
+  Future<void> _disableFocusLock() async {
+    if (!Platform.isWindows) return;
+    _focusLockEnabled = false;
+    _focusLockTimer?.cancel();
+    _focusLockTimer = null;
+    try {
+      await windowManager.setAlwaysOnTop(false);
+    } catch (_) {}
+  }
+
+  Future<void> _safeWindowCall(
+    String label,
+    Future<void> Function() action, {
+    Duration timeout = const Duration(seconds: 1),
+  }) async {
+    try {
+      await action().timeout(timeout);
+    } catch (e) {
+      await LogService.log('BoothSelectionScreen: $label failed: $e');
+    }
+  }
+
+  Future<void> _forceResetUi() async {
+    if (!mounted) return;
+    await LogService.log('BoothSelectionScreen: force reset');
+    _focusLockEnabled = false;
+    _focusLockTimer?.cancel();
+    _focusLockTimer = null;
+    _restoring = false;
+    _restoreStartTime = null;
+    _minimizing = false;
+
+    await SessionService.clearWorkerDone();
+    await SessionService.clearDonePressed();
+    await SessionService.clearPendingSessionEnd();
+    await SessionService.setActiveSessionPhase(SessionService.phaseIdle);
+
+    if (!mounted) return;
+    final appState = Provider.of<AppState>(context, listen: false);
+    appState.setStayMinimizedDuringCapture(false);
+
+    if (!Platform.isWindows) return;
+    await _safeWindowCall('reset: alwaysOnTop off', () => windowManager.setAlwaysOnTop(false));
+    await _safeWindowCall('reset: opacity', () => windowManager.setOpacity(1.0));
+    await _safeWindowCall('reset: restore', () => windowManager.restore());
+    await _safeWindowCall('reset: show', () => windowManager.show());
+    await _safeWindowCall('reset: focus', () => windowManager.focus());
+    await _safeWindowCall('reset: fullscreen', () => windowManager.setFullScreen(true));
+  }
+
+  Future<void> _reassertFocus() async {
+    if (!Platform.isWindows) return;
+    if (!mounted) return;
+    if (_forcingFocus) return;
+    if (_minimizing) return;
+    if (_restoring) return;
+    _forcingFocus = true;
+    try {
+      final phase = await SessionService.getActiveSessionPhase();
+      if (phase != SessionService.phaseIdle) {
+        return;
+      }
+      await _safeWindowCall('reassert: alwaysOnTop', () => windowManager.setAlwaysOnTop(true));
+      await _safeWindowCall('reassert: restore', () => windowManager.restore());
+      await _safeWindowCall('reassert: show', () => windowManager.show());
+      await Future.delayed(const Duration(milliseconds: 16));
+      await _safeWindowCall('reassert: focus', () => windowManager.focus());
+      await _safeWindowCall('reassert: fullscreen', () => windowManager.setFullScreen(true));
+    } catch (e) {
+      await LogService.log('BoothSelectionScreen: focus lock reassert failed: $e');
+    } finally {
+      _forcingFocus = false;
+    }
+  }
+
+  @override
+  void onWindowBlur() {
+    if (!_focusLockEnabled) return;
+    unawaited(_reassertFocus());
+  }
+  
   Future<void> _setFullscreenFrameless() async {
     if (Platform.isWindows) {
+      try {
       await windowManager.setFullScreen(true);
       await windowManager.setTitleBarStyle(TitleBarStyle.hidden);
+      } catch (e) {
+        await LogService.log('BoothSelectionScreen: _setFullscreenFrameless failed: $e');
+      }
     }
   }
 
@@ -237,6 +344,10 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
     _coalesceTimer?.cancel();
     _workerPollTimer?.cancel();
     _donePollTimer?.cancel();
+    _focusLockTimer?.cancel();
+    if (Platform.isWindows) {
+      windowManager.removeListener(this);
+    }
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     _portraitWheelTimer?.cancel();
@@ -650,6 +761,7 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
     if (!mounted) return;
     
     final appState = Provider.of<AppState>(context, listen: false);
+    await _disableFocusLock();
     if (_currentPresets.isEmpty) {
       return;
     }
@@ -670,35 +782,50 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
     await SessionService.saveSelectedPreset(preset, presetPassword: appState.presetPassword);
     if (!mounted) return;
 
-    _activeSessionToken = await SessionService.startSession();
-    if (!mounted) return;
+    await SessionService.clearWorkerDone();
+    await SessionService.clearDonePressed();
+    await SessionService.clearPendingSessionEnd();
 
     if (Platform.isWindows) {
       if (_minimizing) return;
       _minimizing = true;
       try {
         if (!mounted) return;
-        await windowManager.setOpacity(0.0);
+        await _safeWindowCall('minimize: opacity', () => windowManager.setOpacity(0.0));
         if (!mounted) return;
         await Future.delayed(const Duration(milliseconds: 16));
         if (!mounted) return;
-        final isFS = await windowManager.isFullScreen();
+        final isFS = await windowManager.isFullScreen().timeout(const Duration(seconds: 1));
         if (!mounted) return;
         if (isFS) {
-          await windowManager.setFullScreen(false);
+          await _safeWindowCall('minimize: fullscreen off', () => windowManager.setFullScreen(false));
           if (!mounted) return;
           await Future.delayed(const Duration(milliseconds: 16));
         }
         if (!mounted) return;
-        await windowManager.minimize();
-      } catch (_) {
+        await _safeWindowCall('minimize: minimize', () => windowManager.minimize());
+      } catch (e) {
         assert(() {
           debugPrint('âš ï¸ Failed to minimize window');
           return true;
         }());
+        await LogService.log('BoothSelectionScreen: minimize failed: $e');
+        await _safeWindowCall('minimize: hide fallback', () => windowManager.hide());
+        await _safeWindowCall('minimize: opacity fallback', () => windowManager.setOpacity(0.0));
       } finally {
         _minimizing = false;
       }
+    }
+
+    _activeSessionToken = await SessionService.startSession();
+    if (!mounted) return;
+
+    if (preset.isNoEffects) {
+      await SessionService.setActiveSessionPhase(SessionService.phaseWaitingSessionEnd);
+      if (mounted) {
+        _startDonePressedPolling(appState);
+      }
+      return;
     }
 
     _startWorkerCompletionPolling(appState);
@@ -712,6 +839,11 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
         return;
       }
       
+      final phase = await SessionService.getActiveSessionPhase();
+      if (phase != SessionService.phaseCapturing) {
+        return;
+      }
+
       final token = _activeSessionToken;
       final isDone = token != null
           ? await SessionService.checkWorkerDoneToken(token)
@@ -725,6 +857,16 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
         timer.cancel();
         await SessionService.clearWorkerDone();
         await SessionService.setActiveSessionPhase(SessionService.phaseWaitingSessionEnd);
+        final pending = await SessionService.hasPendingSessionEnd();
+        if (pending) {
+          await SessionService.clearPendingSessionEnd();
+          final token = _activeSessionToken;
+          if (token != null) {
+            await SessionService.signalDonePressedToken(token);
+          } else {
+            await SessionService.signalDonePressed();
+          }
+        }
         if (mounted) {
           _startDonePressedPolling(appState);
         }
@@ -760,24 +902,24 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
       if (!mounted) {
         return;
       }
-      
-      await windowManager.setAlwaysOnTop(true);
+
+      await _safeWindowCall('restore: alwaysOnTop on', () => windowManager.setAlwaysOnTop(true));
       alwaysOnTopSet = true;
-      
-      await windowManager.setOpacity(0.0);
-      await windowManager.restore();
-      await windowManager.show();
+
+      await _safeWindowCall('restore: opacity 0', () => windowManager.setOpacity(0.0));
+      await _safeWindowCall('restore: restore', () => windowManager.restore());
+      await _safeWindowCall('restore: show', () => windowManager.show());
       await Future.delayed(const Duration(milliseconds: 20));
-      await windowManager.focus();
+      await _safeWindowCall('restore: focus', () => windowManager.focus());
       await Future.delayed(const Duration(milliseconds: 20));
-      await windowManager.setFullScreen(true);
+      await _safeWindowCall('restore: fullscreen on', () => windowManager.setFullScreen(true));
       await Future.delayed(const Duration(milliseconds: 60));
-      await windowManager.setOpacity(1.0);
+      await _safeWindowCall('restore: opacity 1', () => windowManager.setOpacity(1.0));
       
       await Future.delayed(const Duration(milliseconds: 200));
       
-      if (mounted) {
-        await windowManager.setAlwaysOnTop(false);
+      if (mounted && !_focusLockEnabled) {
+        await _safeWindowCall('restore: alwaysOnTop off', () => windowManager.setAlwaysOnTop(false));
         alwaysOnTopSet = false;
       }
       
@@ -786,8 +928,9 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
       await LogService.log('BoothSelectionScreen: restore stack: $stack');
     } finally {
       try {
-        if (alwaysOnTopSet && mounted) {
-          await windowManager.setAlwaysOnTop(false);
+        await _safeWindowCall('restore: final opacity', () => windowManager.setOpacity(1.0));
+        if (alwaysOnTopSet && mounted && !_focusLockEnabled) {
+          await _safeWindowCall('restore: final alwaysOnTop off', () => windowManager.setAlwaysOnTop(false));
         }
         if (mounted) {
           appState.setStayMinimizedDuringCapture(false);
@@ -829,6 +972,7 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
         }
         
         if (Platform.isWindows) {
+          _enableFocusLock();
           await _restoreSeamless(appState);
         }
       }
@@ -852,6 +996,8 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
           final isPortrait = MediaQuery.of(context).orientation == Orientation.portrait;
           if (event.logicalKey == LogicalKeyboardKey.escape) {
             _handleEscKey();
+          } else if (event.logicalKey == LogicalKeyboardKey.f12) {
+            unawaited(_forceResetUi());
           } else if (isPortrait && (event.logicalKey == LogicalKeyboardKey.arrowDown || event.logicalKey == LogicalKeyboardKey.pageDown)) {
             _scrollPortraitPage(1);
           } else if (isPortrait && (event.logicalKey == LogicalKeyboardKey.arrowUp || event.logicalKey == LogicalKeyboardKey.pageUp)) {
@@ -1380,12 +1526,10 @@ class _BoothSelectionScreenState extends State<BoothSelectionScreen>
     return Container(
       color: const Color(0xFF1F2937),
       child: const Center(
-        child: Text(
-          'ðŸ“·',
-          style: TextStyle(
-            fontSize: 100,
-            color: Color(0xFF6B7280),
-          ),
+        child: Icon(
+          Icons.photo_camera,
+          size: 100,
+          color: Color(0xFF6B7280),
         ),
       ),
     );

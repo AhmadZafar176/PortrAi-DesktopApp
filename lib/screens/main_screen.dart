@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
@@ -1088,13 +1088,11 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                           border: Border.all(color: const Color(0xFF374151)),
                           borderRadius: BorderRadius.circular(14),
                         ),
-                        child: Center(
-                          child: Text(
-                            'ðŸ—‚ï¸',
-                            style: TextStyle(
-                              fontSize: 16,
+                        child: const Center(
+                          child: Icon(
+                            Icons.folder,
+                            size: 16,
                               color: Colors.white,
-                            ),
                             ),
                           ),
                         ),

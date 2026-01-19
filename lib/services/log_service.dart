@@ -69,7 +69,6 @@ class LogService {
         await File(_logFilePath!).writeAsString(
           '[$ts] $message\n',
           mode: FileMode.append,
-          flush: true,
         );
     } catch (_) {
     }

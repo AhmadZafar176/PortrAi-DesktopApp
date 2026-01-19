@@ -32,7 +32,7 @@ void main() async {
 
   WidgetsBinding.instance.platformDispatcher.onError = (error, stack) {
     unawaited(LogService.log('PlatformDispatcher.onError: $error\n$stack'));
-    return false;
+    return true;
   };
 
   runZonedGuarded(() async {
@@ -74,18 +74,30 @@ void main() async {
 
     await windowManager.ensureInitialized();
 
-    await windowManager.setTitleBarStyle(TitleBarStyle.hidden);
-    await windowManager.setFullScreen(true);
+    try {
+      await windowManager
+          .setTitleBarStyle(TitleBarStyle.hidden)
+          .timeout(const Duration(seconds: 1));
+      await windowManager
+          .setFullScreen(true)
+          .timeout(const Duration(seconds: 1));
 
-    WindowOptions windowOptions = const WindowOptions(
-      minimumSize: Size(1024, 768),
-      center: true,
-      title: 'PortrAI - Photobooth Setup',
-    );
-    await windowManager.waitUntilReadyToShow(windowOptions, () async {
-      await windowManager.show();
-      await windowManager.focus();
-    });
+      WindowOptions windowOptions = const WindowOptions(
+        minimumSize: Size(1024, 768),
+        center: true,
+        title: 'PortrAI - Photobooth Setup',
+      );
+      await windowManager.waitUntilReadyToShow(windowOptions, () async {
+        try {
+          await windowManager.show().timeout(const Duration(seconds: 1));
+          await windowManager.focus().timeout(const Duration(seconds: 1));
+        } catch (e) {
+          await LogService.log('windowManager.show/focus failed: $e');
+        }
+      });
+    } catch (e) {
+      await LogService.log('windowManager init failed: $e');
+    }
 
     await Firebase.initializeApp(
       options: const FirebaseOptions(

@@ -165,7 +165,7 @@ class AuthService {
           } else {
             print('ðŸ” AuthService: User cancelled sign-in');
           }
-          break; // Success or cancellation, exit retry loop
+          break;
         } catch (e) {
           final errorString = e.toString().toLowerCase();
           final isServerError = errorString.contains('500') || 
@@ -177,7 +177,7 @@ class AuthService {
           
           if (isServerError && signInRetries < maxSignInRetries - 1) {
             signInRetries++;
-            final delaySeconds = signInRetries * 2; // Exponential backoff: 2s, 4s
+            final delaySeconds = signInRetries * 2;
             print('ðŸ” AuthService: Google server error (500), retrying in ${delaySeconds}s... (attempt $signInRetries/$maxSignInRetries)');
             await Future.delayed(Duration(seconds: delaySeconds));
             
@@ -194,7 +194,7 @@ class AuthService {
             _currentGoogleSignIn = retryGoogleSignIn;
             currentGoogleSignIn = retryGoogleSignIn;
             await Future.delayed(const Duration(milliseconds: 500));
-            continue; // Retry
+            continue;
           } else {
             print('ðŸ” AuthService: Sign-in error (not retrying): $e');
             rethrow;
@@ -216,7 +216,7 @@ class AuthService {
           print('ðŸ” AuthService: Requesting authentication tokens for ${googleUser.email} (attempt ${tokenRetries + 1}/$maxTokenRetries)...');
           googleAuth = await googleUser.authentication;
           print('ðŸ” AuthService: Got authentication tokens (accessToken: ${googleAuth.accessToken != null ? "present" : "null"}, idToken: ${googleAuth.idToken != null ? "present" : "null"})');
-          break; // Success, exit retry loop
+          break;
         } catch (e) {
           final errorString = e.toString().toLowerCase();
           final isServerError = errorString.contains('500') || 
@@ -225,7 +225,7 @@ class AuthService {
           
           if (isServerError && tokenRetries < maxTokenRetries - 1) {
             tokenRetries++;
-            final delaySeconds = tokenRetries * 2; // Exponential backoff: 2s, 4s
+            final delaySeconds = tokenRetries * 2;
             print('ðŸ” AuthService: Google server error (500) getting tokens, retrying in ${delaySeconds}s... (attempt $tokenRetries/$maxTokenRetries)');
             await Future.delayed(Duration(seconds: delaySeconds));
             
@@ -234,7 +234,7 @@ class AuthService {
               await Future.delayed(const Duration(milliseconds: 500));
             } catch (_) {
             }
-            continue; // Retry
+            continue;
           } else {
             print('ðŸ” AuthService: Failed to get authentication tokens: $e');
             if (isServerError) {
@@ -268,7 +268,7 @@ class AuthService {
         try {
           print('ðŸ” AuthService: Signing in to Firebase with Google credential (attempt ${firebaseRetries + 1}/$maxFirebaseRetries)...');
           result = await _auth.signInWithCredential(credential);
-          break; // Success, exit retry loop
+          break;
         } catch (e) {
           final errorString = e.toString().toLowerCase();
           final isServerError = errorString.contains('500') || 
@@ -283,10 +283,10 @@ class AuthService {
             throw Exception('Invalid credentials. Please try signing in again.');
           } else if (isServerError && firebaseRetries < maxFirebaseRetries - 1) {
             firebaseRetries++;
-            final delaySeconds = firebaseRetries * 2; // Exponential backoff: 2s
+            final delaySeconds = firebaseRetries * 2;
             print('ðŸ” AuthService: Firebase server error (500), retrying in ${delaySeconds}s... (attempt $firebaseRetries/$maxFirebaseRetries)');
             await Future.delayed(Duration(seconds: delaySeconds));
-            continue; // Retry
+            continue;
           } else if (errorString.contains('network') || errorString.contains('timeout')) {
             throw Exception('Network error. Please check your internet connection and try again.');
           } else if (errorString.contains('too-many-requests')) {
@@ -326,7 +326,7 @@ class AuthService {
           errorString.contains('cancelled') ||
           errorString.contains('user_cancelled')) {
         print('ðŸ” AuthService: User cancelled sign-in');
-        return null; // User cancellation is not an error
+        return null;
       }
       
       String errorMessage = 'Failed to sign in with Google';

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 
 
@@ -20,6 +21,8 @@ class _ProcessingOverlayState extends State<ProcessingOverlay>
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
   late Animation<double> _scaleAnimation;
+  Timer? _forceCompleteTimer;
+  bool _forceStatic = false;
 
   @override
   void initState() {
@@ -47,49 +50,47 @@ class _ProcessingOverlayState extends State<ProcessingOverlay>
     ));
 
     _animationController.forward();
+
+    _forceCompleteTimer = Timer(const Duration(milliseconds: 700), () {
+      if (!mounted) return;
+      if (!_animationController.isCompleted) {
+        _animationController.value = 1.0;
+        setState(() {
+          _forceStatic = true;
+        });
+      }
+    });
   }
 
   @override
   void dispose() {
+    _forceCompleteTimer?.cancel();
     _animationController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: Container(
-        width: double.infinity,
-        height: double.infinity,
-        color: const Color(0xFF0F172A),
-        child: AnimatedBuilder(
-          animation: _animationController,
-          builder: (context, child) {
-            return FadeTransition(
-              opacity: _fadeAnimation,
-              child: Center(
+    final disableAnimations = MediaQuery.of(context).disableAnimations;
+    final useStatic = disableAnimations || _forceStatic;
+
+    final body = Center(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 32.0),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-
-                      ScaleTransition(
-                        scale: _scaleAnimation,
-                        child: SizedBox(
+            SizedBox(
                           width: 48,
                           height: 48,
                           child: CircularProgressIndicator(
                             strokeWidth: 4,
                             valueColor: const AlwaysStoppedAnimation<Color>(
                               Color(0xFF7C3AED),
-                            ),
                           ),
                         ),
                       ),
                       const SizedBox(height: 24),
-
                       Text(
                         widget.message,
                         style: const TextStyle(
@@ -101,7 +102,6 @@ class _ProcessingOverlayState extends State<ProcessingOverlay>
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 12),
-
                       Text(
                         'Our AI is working its magic. Please wait a moment.',
                         style: TextStyle(
@@ -115,6 +115,24 @@ class _ProcessingOverlayState extends State<ProcessingOverlay>
                     ],
                   ),
                 ),
+    );
+
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        width: double.infinity,
+        height: double.infinity,
+        color: const Color(0xFF0F172A),
+        child: useStatic
+            ? body
+            : AnimatedBuilder(
+                animation: _animationController,
+                builder: (context, child) {
+                  return FadeTransition(
+                    opacity: _fadeAnimation,
+                    child: ScaleTransition(
+                      scale: _scaleAnimation,
+                      child: body,
               ),
             );
           },
@@ -221,7 +239,12 @@ class OverlayManager {
       builder: (context) => ProcessingOverlay(message: message),
     );
     
-    Overlay.of(context).insert(_currentOverlay!);
+    final overlay = Overlay.maybeOf(context);
+    if (overlay == null) {
+      _currentOverlay = null;
+      return;
+    }
+    overlay.insert(_currentOverlay!);
   }
 
   static void showDone(BuildContext context, VoidCallback onDone) {
@@ -231,7 +254,12 @@ class OverlayManager {
       builder: (context) => DoneOverlay(onDone: onDone),
     );
     
-    Overlay.of(context).insert(_currentOverlay!);
+    final overlay = Overlay.maybeOf(context);
+    if (overlay == null) {
+      _currentOverlay = null;
+      return;
+    }
+    overlay.insert(_currentOverlay!);
   }
 
   static void hideOverlay() {

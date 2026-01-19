@@ -7,7 +7,7 @@ class IPCService {
   static const int _port = 45678;
   static const String _appName = 'portrai_app';
   static const String _newline = '\n';
-  static const int _maxBufferedChars = 1024 * 1024; // 1MB of UTF-16 chars
+  static const int _maxBufferedChars = 1024 * 1024;
   
   ServerSocket? _serverSocket;
   StreamSubscription? _subscription;
